@@ -1,0 +1,3066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI 健身教练</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        /* ============================================================
+           Reset & Base
+           ============================================================ */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            font-size: 16px;
+            line-height: 1.5;
+            height: 100%;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* ============================================================
+           App Container — 手机 480px 居中
+           ============================================================ */
+        #app {
+            max-width: 480px;
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;         /* 移动端安全高度 */
+            margin: 0 auto;
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 40%, #0f172a 100%);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+        /* 桌面端：模拟手机外壳 */
+        @media (min-width: 500px) {
+            html, body { background: #070b14; }
+            #app {
+                border-radius: 24px;
+                box-shadow:
+                    0  0 0 1px rgba(56,189,248,0.08),
+                    0 20px 80px rgba(0,0,0,0.6),
+                    0  0 120px rgba(14,165,233,0.06);
+                margin: 0 auto;
+                height: 100vh;
+                height: 100dvh;
+            }
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.18); border-radius: 2px; }
+
+        /* ============================================================
+           顶部栏（固定在顶部）
+           ============================================================ */
+        .top-bar {
+            display: flex; align-items: center;
+            padding: 12px 16px;
+            background: rgba(15,23,42,0.92);
+            border-bottom: 1px solid rgba(56,189,248,0.08);
+            flex-shrink: 0;
+            z-index: 100;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+        .hamburger {
+            width: 44px; height: 44px;            /* 44px 最小手指点击区域 */
+            border-radius: 12px;
+            background: rgba(30,41,59,0.9);
+            border: 1px solid rgba(56,189,248,0.3);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; flex-shrink: 0; transition: all 0.2s ease;
+        }
+        .hamburger:hover, .hamburger:active { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.5); }
+        .hamburger svg { width: 22px; height: 22px; color: #38bdf8; }
+        .top-title { flex: 1; text-align: center; }
+        .top-title .name { font-size: 1.1rem; font-weight: 700; color: #38bdf8; }
+        .top-title .sub { font-size: 0.7rem; color: #64748b; margin-top: 1px; }
+        .top-spacer { width: 44px; flex-shrink: 0; }
+
+        /* ============================================================
+           聊天区域（可滚动，底部留白给输入框）
+           ============================================================ */
+        .chat-container {
+            flex: 1; overflow-y: auto;
+            padding: 16px 16px 12px;
+            display: flex; flex-direction: column; gap: 14px;
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+        }
+        .welcome { text-align: center; color: #64748b; padding: 60px 16px 40px; line-height: 2; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+        .welcome .emoji { font-size: 3rem; margin-bottom: 16px; }
+        .welcome .text { font-size: 0.92rem; }
+
+        /* 消息气泡 */
+        .message { display: flex; gap: 10px; max-width: 82%; animation: fadeIn 0.3s ease; }
+        .message.user { align-self: flex-end; flex-direction: row-reverse; }
+        .message.assistant { align-self: flex-start; }
+        @keyframes fadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: translateY(0); } }
+        .avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem; flex-shrink: 0; margin-top: 2px;
+        }
+        .message.user .avatar { background: rgba(56,189,248,0.12); }
+        .message.assistant .avatar { background: rgba(16,185,129,0.12); }
+        .bubble {
+            padding: 10px 14px; border-radius: 16px;
+            line-height: 1.65; font-size: 0.92rem;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        .message.user .bubble {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+            color: white; border-bottom-right-radius: 4px;
+        }
+        .message.assistant .bubble {
+            background: rgba(30,41,59,0.65);
+            border: 1px solid rgba(148,163,184,0.1);
+            border-bottom-left-radius: 4px;
+        }
+        /* 光标闪烁 */
+        .cursor { display: inline-block; animation: blink 0.8s infinite; color: #38bdf8; margin-left: 2px; }
+        @keyframes blink { 50% { opacity: 0; } }
+        /* 思考中动画 */
+        .thinking { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+        .thinking .dot {
+            width: 7px; height: 7px; border-radius: 50%; background: #38bdf8;
+            animation: bounce 1.2s infinite ease-in-out;
+        }
+        .thinking .dot:nth-child(2) { animation-delay: 0.18s; }
+        .thinking .dot:nth-child(3) { animation-delay: 0.36s; }
+        @keyframes bounce { 0%,60%,100%{transform:translateY(0);opacity:.4} 30%{transform:translateY(-6px);opacity:1} }
+
+        /* TTS 播放条 */
+        .tts-bar { display: none; margin-top: 6px; }
+        .tts-bar.show { display: flex; align-items: center; gap: 6px; }
+        .tts-btn {
+            padding: 4px 10px; border-radius: 8px;
+            border: 1px solid rgba(56,189,248,0.2);
+            background: rgba(30,41,59,0.6); color: #38bdf8;
+            font-size: 0.75rem; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 4px;
+        }
+        .tts-btn:hover { background: rgba(56,189,248,0.1); }
+        .tts-btn.playing { color: #10b981; border-color: rgba(16,185,129,0.4); }
+
+        /* ============================================================
+           底部输入区（固定在底部，在导航栏上方）
+           ============================================================ */
+        .input-area {
+            flex-shrink: 0;
+            padding: 10px 14px 14px;
+            background: rgba(15,23,42,0.95);
+            border-top: 1px solid rgba(148,163,184,0.08);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+        .input-row {
+            display: flex; align-items: flex-end; gap: 10px;
+            background: rgba(30,41,59,0.85);
+            border: 1px solid rgba(80,90,110,0.35);
+            border-radius: 28px;
+            padding: 6px 6px 6px 52px;       /* 左侧留白给语音按钮 */
+            position: relative;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-height: 50px;
+        }
+        .input-row:focus-within {
+            border-color: rgba(56,189,248,0.45);
+            box-shadow: 0 0 0 1px rgba(56,189,248,0.1), 0 2px 12px rgba(0,0,0,0.25);
+        }
+        .input-row textarea {
+            flex: 1; border: none; background: transparent;
+            color: #e2e8f0; font-size: 0.95rem; font-family: inherit;
+            resize: none; outline: none;
+            padding: 8px 4px; line-height: 1.5;
+            max-height: 100px;
+            scrollbar-width: none;
+        }
+        .input-row textarea::placeholder { color: #58688a; }
+        .input-row textarea::-webkit-scrollbar { display: none; }
+
+        /* 左侧语音按钮 */
+        .btn-voice {
+            position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+            width: 40px; height: 40px; border-radius: 50%;
+            border:1.5px solid rgba(148,163,184,0.3);
+            background: rgba(30,41,59,0.7);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s ease; flex-shrink: 0;
+        }
+        .btn-voice:hover, .btn-voice:active { border-color: #38bdf8; background: rgba(56,189,248,0.1); }
+        .btn-voice svg { width: 18px; height: 18px; stroke: #94a3b8; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+        .btn-voice:hover svg, .btn-voice:active svg { stroke: #38bdf8; }
+        .btn-voice.recording { border-color: #ef4444; background: rgba(239,68,68,0.12); }
+        .btn-voice.recording svg { stroke: #ef4444; }
+
+        /* 右侧发送/上传按钮 */
+        .btn-send {
+            width: 40px; height: 40px; border-radius: 50%;
+            border: none; flex-shrink: 0;
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+            color: white; font-size: 1.1rem;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-send:hover { transform: scale(1.06); box-shadow: 0 2px 10px rgba(14,165,233,0.35); }
+        .btn-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* ============================================================
+           底部导航栏
+           ============================================================ */
+        .bottom-nav {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-around;
+            padding: 6px 0 10px;
+            background: rgba(15,23,42,0.95);
+            border-top: 1px solid rgba(148,163,184,0.08);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 6px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #64748b;
+            font-size: 0.7rem;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .nav-item.active {
+            color: #38bdf8;
+        }
+        .nav-item:hover {
+            background: rgba(56,189,248,0.1);
+        }
+        .nav-icon {
+            font-size: 1.3rem;
+        }
+
+        /* ============================================================
+           数据看板页面
+           ============================================================ */
+        .dashboard-container {
+            display: none; flex: 1; overflow-y: auto;
+            padding: 16px;
+            scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+        }
+        .dashboard-header {
+            display: flex; align-items: center; gap: 14px;
+            margin-bottom: 18px; position: sticky; top: 0;
+            background: inherit; padding-bottom: 8px; z-index: 10;
+        }
+        .back-btn {
+            background: rgba(30,41,59,0.8); border: 1px solid rgba(148,163,184,0.15);
+            color: #94a3b8; padding: 6px 14px; border-radius: 8px;
+            cursor: pointer; font-size: 0.85rem; transition: all 0.2s; flex-shrink: 0;
+        }
+        .back-btn:hover { background: rgba(56,189,248,0.1); color: #38bdf8; }
+        .dashboard-header h2 { font-size: 1.15rem; color: #f1f5f9; }
+        .dashboard-card {
+            background: rgba(30,41,59,0.5); border: 1px solid rgba(148,163,184,0.08);
+            border-radius: 16px; padding: 18px; margin-bottom: 16px;
+        }
+        .card-title {
+            font-size: 0.8rem; color: #64748b; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 12px; font-weight: 600;
+        }
+        .bmi-value { font-size: 2rem; font-weight: 700; color: #38bdf8; }
+        .bmi-status { font-size: 0.88rem; margin-top: 6px; padding: 4px 12px; border-radius: 20px; display: inline-block; }
+        .bmi-status.normal { background: rgba(16,185,129,0.15); color: #10b981; }
+        .bmi-status.under  { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .bmi-status.over   { background: rgba(249,115,22,0.15); color: #f97316; }
+        .bmi-status.obese  { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .current-weight { font-size: 0.82rem; color: #94a3b8; margin-top: 8px; }
+
+        /* 环形进度条 */
+        .ring-container {
+            display: flex; justify-content: center; align-items: center;
+            margin: 10px 0 16px; position: relative;
+        }
+        .ring-chart { width: 160px; height: 160px; }
+        .ring-text {
+            position: absolute;
+            text-align: center;
+        }
+        .ring-value { font-size: 1.8rem; font-weight: 700; color: #38bdf8; }
+        .ring-label { font-size: 0.75rem; color: #64748b; }
+        .calorie-text { font-size: 0.92rem; color: #cbd5e1; text-align: center; }
+        .calorie-text span { color: #38bdf8; font-weight: 600; }
+
+        /* 营养条形图 */
+        .nutrition-item { margin-bottom: 14px; }
+        .nutrition-header {
+            display: flex; justify-content: space-between;
+            font-size: 0.82rem; color: #94a3b8; margin-bottom: 6px;
+        }
+        .nutrition-track {
+            height: 10px; background: rgba(15,23,42,0.6);
+            border-radius: 5px; overflow: hidden;
+        }
+        .nutrition-fill {
+            height: 100%; border-radius: 5px;
+            transition: width 0.5s ease;
+        }
+        .nutrition-fill.protein { background: linear-gradient(90deg, #0ea5e9, #2563eb); }
+        .nutrition-fill.carb { background: linear-gradient(90deg, #10b981, #059669); }
+        .nutrition-fill.fat { background: linear-gradient(90deg, #f97316, #ef4444); }
+
+        /* 运动打卡日历 */
+        .calendar {
+            display: grid; grid-template-columns: repeat(7, 1fr);
+            gap: 6px; margin-top: 12px;
+        }
+        .calendar-day {
+            aspect-ratio: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            border-radius: 8px; background: rgba(15,23,42,0.6);
+            font-size: 0.75rem; color: #94a3b8;
+        }
+        .calendar-day.checked {
+            background: rgba(16,185,129,0.2);
+            color: #10b981;
+        }
+        .calendar-day.today {
+            border: 1px solid rgba(56,189,248,0.5);
+        }
+        .calendar-day .day-name {
+            font-size: 0.65rem; color: #475569;
+        }
+
+        .goal-btn {
+            margin-top: 12px; padding: 8px 16px; border-radius: 8px;
+            border: 1px solid rgba(148,163,184,0.12);
+            background: rgba(30,41,59,0.6); color: #94a3b8;
+            font-size: 0.82rem; cursor: pointer; transition: all 0.2s;
+        }
+        .goal-btn:hover { background: rgba(56,189,248,0.1); color: #38bdf8; }
+        .diet-list { max-height: 220px; overflow-y: auto; }
+        .diet-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,0.06); font-size: 0.88rem; color: #cbd5e1; }
+        .diet-item .calories { color: #f97316; font-weight: 500; }
+        .empty-text { color: #64748b; font-size: 0.88rem; text-align: center; padding: 20px 0; }
+        .add-btn { float: right; background: none; border: none; color: #38bdf8; cursor: pointer; font-size: 0.82rem; padding: 0; }
+        .export-btn {
+            margin-top: 14px; width: 100%; padding: 10px; border-radius: 10px;
+            border:1px solid rgba(148,163,184,0.12);
+            background: rgba(30,41,59,0.6); color: #e2e8f0;
+            font-size: 0.88rem; cursor: pointer; transition: all 0.2s;
+        }
+        .export-btn:hover { background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); }
+
+        /* ============================================================
+           遮罩 + 抽屉面板
+           ============================================================ */
+        .overlay {
+            position: fixed; top:0; left:0; right:0; bottom:0;
+            background: rgba(0,0,0,0.55); z-index: 2000;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+        }
+        .overlay.visible { opacity: 1; pointer-events: auto; }
+        .drawer {
+            position: fixed; top:0; left:0; bottom:0;
+            width: 340px; max-width: 88vw;
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            z-index: 2001; transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            overflow-y: auto;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+            border-right: 1px solid rgba(56,189,248,0.18);
+        }
+        .drawer.open { transform: translateX(0); }
+        /* 让抽屉也在 #app 内（桌面端）*/
+        @media (min-width: 500px) {
+            .overlay, .drawer { max-width: 480px; left: 50%; transform: translateX(-100%); margin-left: -240px; }
+            .drawer.open { transform: translateX(0); margin-left: -240px; }
+            .overlay { left: 50%; transform: none; margin-left: -240px; }
+        }
+        .drawer-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 20px 24px 16px; border-bottom: 1px solid rgba(148,163,184,0.12);
+        }
+        .drawer-title { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+        .drawer-close {
+            width: 32px; height: 32px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: #94a3b8; font-size: 18px; transition: all 0.2s;
+        }
+        .drawer-close:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+        .drawer-body { padding: 20px 24px 40px; }
+        .section-title {
+            font-size: 0.76rem; color: #64748b; text-transform: uppercase;
+            letter-spacing: 1.5px; margin: 18px 0 10px; font-weight: 600;
+        }
+        .section-title:first-child { margin-top: 0; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 0.82rem; color: #94a3b8; margin-bottom: 5px; }
+        .form-group label .unit { font-size: 0.7rem; color: #475569; margin-left: 4px; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 10px 12px; border-radius: 10px;
+            border: 1px solid rgba(148,163,184,0.2);
+            background: rgba(15,23,42,0.8); color: #f1f5f9;
+            font-size: 0.95rem; outline: none; transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+        .form-group input:focus, .form-group select:focus { border-color: #38bdf8; }
+        .save-btn {
+            width: 100%; padding: 12px; margin-top: 6px; border: none; border-radius: 10px;
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+            color: white; font-size: 0.95rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .save-btn:hover { transform: translateY(-1px); }
+        .action-btn {
+            width: 100%; padding: 12px 16px; margin-bottom: 8px;
+            border: 1px solid rgba(148,163,184,0.12); border-radius: 10px;
+            background: rgba(30,41,59,0.6); color: #e2e8f0;
+            font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+            text-align: left; display: flex; align-items: center; gap: 10px;
+        }
+        .action-btn:hover { background: rgba(56,189,248,0.1); }
+        .user-badge {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.2);
+            color: #38bdf8; font-size: 0.75rem; font-family: monospace;
+        }
+        .divider { margin: 18px 0 14px; border-top: 1px solid rgba(148,163,184,0.1); }
+        .saved-data {
+            background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 10px; padding: 12px 14px; margin-top: 10px;
+            font-size: 0.82rem; color: #86efac; line-height: 1.8; display: none;
+        }
+        .saved-data.show { display: block; }
+        .saved-data .row { display: flex; justify-content: space-between; }
+
+        /* Toast 通知 */
+        .toast {
+            position: fixed; bottom: 88px; left: 50%;
+            transform: translateX(-50%) translateY(16px);
+            padding: 12px 24px; border-radius: 12px;
+            font-size: 0.9rem; font-weight: 500;
+            z-index: 3000; opacity: 0; transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); max-width: 90%;
+            text-align: center; pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+        .toast.error   { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+        /* 桌面端 Toast 居中于 app 容器 */
+        @media (min-width: 500px) {
+            .toast { left: 50%; }
+        }
+
+        /* ============================================================
+           弹窗（目标设定）
+           ============================================================ */
+        .modal-overlay {
+            position: fixed; top:0; left:0; right:0; bottom:0;
+            background: rgba(0,0,0,0.6); z-index: 3000;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .modal-card {
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid rgba(56,189,248,0.2); border-radius: 16px;
+            padding: 24px; width: 340px; max-width: 88vw;
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 18px; font-size: 1.05rem; font-weight: 600; color: #f1f5f9;
+        }
+        .modal-close {
+            width: 28px; height: 28px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: #94a3b8; font-size: 16px; transition: all 0.2s;
+        }
+        .modal-close:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .modal-body .form-group { margin-bottom: 16px; }
+        .modal-body .form-group label { display: block; font-size: 0.82rem; color: #94a3b8; margin-bottom: 6px; }
+        .modal-body .form-group input {
+            width: 100%; padding: 10px 12px; border-radius: 10px;
+            border:1px solid rgba(148,163,184,0.2);
+            background: rgba(15,23,42,0.8); color: #f1f5f9;
+            font-size: 0.95rem; outline: none; box-sizing: border-box;
+        }
+        .modal-body .form-group input:focus { border-color: #38bdf8; }
+        .modal-footer { margin-top: 18px; }
+        .modal-footer .save-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+            color: white; font-size: 0.95rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .modal-footer .save-btn:hover { transform: translateY(-1px); }
+        .modal-body .form-group select {
+            width: 100%; padding: 10px 12px; border-radius: 10px;
+            border: 1px solid rgba(148,163,184,0.2);
+            background: rgba(15,23,42,0.8); color: #f1f5f9;
+            font-size: 0.95rem; outline: none; box-sizing: border-box;
+            appearance: none; cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 12px center;
+        }
+        .modal-body .form-group select:focus { border-color: #38bdf8; }
+
+        /* ============================================================
+           打卡按钮
+           ============================================================ */
+        .checkin-btn {
+            width: 100%; padding: 14px; border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white; font-size: 1.05rem; font-weight: 700;
+            cursor: pointer; transition: all 0.3s;
+            box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+            margin-top: 12px;
+        }
+        .checkin-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16,185,129,0.4); }
+        .checkin-btn:active { transform: translateY(0); }
+        .checkin-btn.checked { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+        .checkin-status { text-align: center; margin-bottom: 12px; }
+        .streak-text { font-size: 1.5rem; font-weight: 700; color: #10b981; }
+        .total-text { font-size: 0.85rem; color: #94a3b8; margin-top: 4px; }
+
+        /* ============================================================
+           ★ 通用确认交互组件（Human-in-the-loop）
+           支持：外卖确认、训练计划确认、敏感操作确认等
+           ============================================================ */
+        .confirm-overlay {
+            position: fixed; top:0; left:0; right:0; bottom:0;
+            background: rgba(0,0,0,0.7); z-index: 5000;
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+            backdrop-filter: blur(4px);
+        }
+        .confirm-overlay.visible { opacity: 1; pointer-events: auto; }
+        .confirm-card {
+            background: linear-gradient(160deg, #1a2332 0%, #111827 100%);
+            border: 1px solid rgba(56,189,248,0.18); border-radius: 24px;
+            padding: 32px 28px 28px; width: 360px; max-width: 90vw;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+            text-align: center; animation: confirmSlideIn 0.3s ease;
+        }
+        @keyframes confirmSlideIn {
+            from { opacity: 0; transform: translateY(20px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .confirm-icon { font-size: 3.2rem; margin-bottom: 16px; line-height: 1; }
+        .confirm-type-badge {
+            display: inline-block; padding: 3px 12px; border-radius: 20px;
+            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em;
+            margin-bottom: 10px; text-transform: uppercase;
+            background: rgba(56,189,248,0.12); color: #38bdf8;
+        }
+        .confirm-title { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+        .confirm-desc {
+            font-size: 0.87rem; color: #94a3b8; line-height: 1.75;
+            margin-bottom: 24px; text-align: left; white-space: pre-wrap;
+            background: rgba(15,23,42,0.5); border-radius: 12px; padding: 14px 16px;
+            border: 1px solid rgba(148,163,184,0.08);
+        }
+        .confirm-desc strong { color: #fbbf24; }
+        .confirm-desc em { color: #38bdf8; font-style: normal; }
+        .confirm-actions {
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .confirm-btn {
+            width: 100%; padding: 14px; border-radius: 14px;
+            border: none; font-size: 0.95rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s ease;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .confirm-btn.primary {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white; box-shadow: 0 4px 16px rgba(16,185,129,0.2);
+        }
+        .confirm-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.3); }
+        .confirm-btn.secondary {
+            background: rgba(30,41,59,0.6);
+            border: 1px solid rgba(148,163,184,0.15);
+            color: #94a3b8;
+        }
+        .confirm-btn.secondary:hover { border-color: rgba(148,163,184,0.35); color: #cbd5e1; }
+        .confirm-btn.danger {
+            background: transparent; color: #f87171; font-size: 0.85rem;
+            padding: 8px; margin-top: 4px; opacity: 0.7;
+        }
+        .confirm-btn.danger:hover { opacity: 1; }
+        .confirm-btn.accent {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white; box-shadow: 0 4px 16px rgba(245,158,11,0.2);
+        }
+        .confirm-btn.accent:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.3); }
+
+        /* 成就网格 */
+        .achievements-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 10px; margin-top: 12px;
+        }
+        .achievement-item {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 12px 8px; border-radius: 12px;
+            background: rgba(15,23,42,0.6); text-align: center;
+            transition: all 0.3s; opacity: 0.35; filter: grayscale(1);
+        }
+        .achievement-item.unlocked {
+            opacity: 1; filter: none;
+            background: rgba(16,185,129,0.1);
+            border: 1px solid rgba(16,185,129,0.25);
+        }
+        .achievement-icon { font-size: 1.8rem; margin-bottom: 6px; }
+        .achievement-name { font-size: 0.75rem; color: #cbd5e1; font-weight: 600; }
+        .achievement-desc { font-size: 0.65rem; color: #64748b; margin-top: 3px; }
+
+        /* 海报生成 */
+        .poster-btn {
+            margin-top: 14px; width: 100%; padding: 12px; border-radius: 10px;
+            border: 1px solid rgba(139,92,246,0.35);
+            background: rgba(139,92,246,0.1); color: #a78bfa;
+            font-size: 0.92rem; cursor: pointer; transition: all 0.2s;
+        }
+        .poster-btn:hover { background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.5); }
+
+        /* 桌面端弹窗居中于 app 容器 */
+        @media (min-width: 500px) {
+            .modal-overlay { left: 50%; transform: translateX(-50%); max-width: 480px; }
+        }
+
+        /* ============================================================
+           登录/注册页面
+           ============================================================ */
+        #auth-page {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 40%, #0f172a 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; padding: 24px;
+        }
+        .auth-logo { font-size: 4rem; margin-bottom: 12px; }
+        .auth-title { font-size: 1.6rem; font-weight: 800; color: #38bdf8; margin-bottom: 6px; }
+        .auth-subtitle { font-size: 0.85rem; color: #64748b; margin-bottom: 32px; text-align: center; line-height: 1.6; }
+        .auth-form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 14px; }
+        .auth-input {
+            width: 100%; padding: 14px 16px; border-radius: 12px;
+            border: 1px solid rgba(56,189,248,0.2);
+            background: rgba(15,23,42,0.9); color: #e2e8f0;
+            font-size: 0.95rem; outline: none; transition: all 0.2s;
+        }
+        .auth-input:focus { border-color: rgba(56,189,248,0.5); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
+        .auth-input::placeholder { color: #475569; }
+        .auth-btn {
+            width: 100%; padding: 14px; border-radius: 12px;
+            border: none; cursor: pointer; font-size: 1rem; font-weight: 700;
+            background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+            color: #0f172a; transition: all 0.2s; margin-top: 6px;
+        }
+        .auth-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(14,165,233,0.35); }
+        .auth-btn:active { transform: translateY(0); }
+        .auth-switch { text-align: center; color: #64748b; font-size: 0.85rem; margin-top: 18px; }
+        .auth-switch a { color: #38bdf8; text-decoration: none; font-weight: 600; cursor: pointer; }
+        .auth-switch a:hover { text-decoration: underline; }
+        .auth-error { color: #f87171; font-size: 0.82rem; text-align: center; min-height: 20px; }
+        .auth-loading { display: none; text-align: center; color: #38bdf8; font-size: 0.85rem; margin-top: 10px; }
+        .phone-row {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(15,23,42,0.9); border: 1px solid rgba(56,189,248,0.2);
+            border-radius: 12px; padding: 0 16px; transition: all 0.2s;
+        }
+        .phone-row:focus-within { border-color: rgba(56,189,248,0.5); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
+        .phone-prefix {
+            color: #38bdf8; font-size: 0.95rem; font-weight: 700;
+            white-space: nowrap; user-select: none;
+        }
+        .auth-phone-input {
+            flex: 1; border: none; background: transparent; outline: none;
+            color: #e2e8f0; font-size: 0.95rem; padding: 14px 0;
+        }
+        .auth-phone-input::placeholder { color: #475569; }
+        .code-row {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .code-input-wrap {
+            flex: 1; display: flex; align-items: center;
+            background: rgba(15,23,42,0.9); border: 1px solid rgba(56,189,248,0.2);
+            border-radius: 12px; padding: 0 16px; transition: all 0.2s;
+        }
+        .code-input-wrap:focus-within { border-color: rgba(56,189,248,0.5); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
+        .auth-code-input {
+            width: 100%; border: none; background: transparent; outline: none;
+            color: #e2e8f0; font-size: 0.95rem; padding: 14px 0; letter-spacing: 4px;
+        }
+        .auth-code-input::placeholder { letter-spacing: 0; color: #475569; }
+        .code-btn {
+            flex-shrink: 0; height: 48px; padding: 0 16px;
+            border-radius: 12px; border: 1px solid rgba(56,189,248,0.35);
+            background: rgba(56,189,248,0.08); color: #38bdf8;
+            font-size: 0.85rem; font-weight: 600; cursor: pointer;
+            transition: all 0.2s; white-space: nowrap;
+        }
+        .code-btn:hover:not(:disabled) { background: rgba(56,189,248,0.18); border-color: rgba(56,189,248,0.5); }
+        .code-btn:disabled { color: #475569; border-color: rgba(71,85,105,0.3); background: transparent; cursor: not-allowed; }
+
+        /* ============================================================
+           首页 Dashboard
+           ============================================================ */
+        #homeContainer {
+            display: flex; flex-direction: column;
+            flex: 1; overflow-y: auto;
+            padding: 0 16px 16px;
+            scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+        }
+        .home-welcome { padding: 28px 4px 12px; }
+        .home-greeting { font-size: 1.6rem; font-weight: 800; color: #f1f5f9; line-height: 1.3; }
+        .home-greeting .emoji { margin-right: 6px; }
+        .home-date { font-size: 0.82rem; color: #64748b; margin-top: 4px; }
+        .home-encourage { margin-top: 10px; font-size: 0.88rem; color: #38bdf8; font-weight: 500; }
+
+        .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+        .overview-card {
+            background: linear-gradient(135deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9));
+            border: 1px solid rgba(56,189,248,0.12); border-radius: 16px; padding: 16px 10px;
+            text-align: center; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .overview-card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        .overview-card .ov-icon { font-size: 1.5rem; margin-bottom: 6px; }
+        .overview-card .ov-value { font-size: 1.7rem; font-weight: 800; line-height: 1.1; }
+        .overview-card .ov-value.cal { color: #f97316; }
+        .overview-card .ov-value.dur { color: #38bdf8; }
+        .overview-card .ov-value.streak { color: #10b981; }
+        .overview-card .ov-unit { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+        .overview-card .ov-label { font-size: 0.7rem; color: #94a3b8; margin-top: 6px; }
+
+        .start-train-btn {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            width: 100%; padding: 18px 24px; margin-top: 22px;
+            border: none; border-radius: 16px; cursor: pointer;
+            font-size: 1.15rem; font-weight: 700; color: #0f172a;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9, #2563eb);
+            background-size: 200% 200%;
+            animation: gradientShift 3s ease infinite;
+            box-shadow: 0 4px 24px rgba(14,165,233,0.35);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .start-train-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(14,165,233,0.5); }
+        .start-train-btn:active { transform: translateY(0); }
+        .start-train-btn .btn-icon { font-size: 1.4rem; }
+        @keyframes gradientShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+
+        .home-quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+        .quick-action-card {
+            background: rgba(30,41,59,0.5); border: 1px solid rgba(148,163,184,0.08);
+            border-radius: 14px; padding: 14px 12px; display: flex;
+            align-items: center; gap: 10px; cursor: pointer; transition: all 0.2s;
+        }
+        .quick-action-card:hover { background: rgba(56,189,248,0.08); border-color: rgba(56,189,248,0.2); }
+        .quick-action-card .qa-icon { font-size: 1.5rem; flex-shrink: 0; }
+        .quick-action-card .qa-text { font-size: 0.82rem; color: #cbd5e1; font-weight: 500; }
+
+        #trainingPage {
+            display: none; flex-direction: column; flex: 1;
+            overflow-y: auto; padding: 0; text-align: left;
+            -webkit-overflow-scrolling: touch;
+        }
+        .training-back-btn {
+            display: block; margin: 8px 16px 24px;
+            padding: 12px 20px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.2);
+            background: rgba(30,41,59,0.6); color: #94a3b8;
+            font-size: 0.88rem; cursor: pointer; transition: all 0.2s; text-align: center;
+        }
+        .training-back-btn:hover { background: rgba(56,189,248,0.1); color: #38bdf8; }
+
+        .top-chat-btn {
+            width: 44px; height: 44px; border-radius: 12px;
+            background: rgba(30,41,59,0.9); border: 1px solid rgba(56,189,248,0.3);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; flex-shrink: 0; transition: all 0.2s;
+            font-size: 1.2rem; color: inherit;
+        }
+        .top-chat-btn:hover { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.5); }
+
+        /* ============================================================
+           Phase 2: 快速饮食记录
+           ============================================================ */
+        .quick-record { margin-top: 14px; padding: 14px; background: rgba(14,165,233,0.06); border: 1px solid rgba(56,189,248,0.15); border-radius: 12px; }
+        .quick-record-title { font-size: 0.82rem; color: #38bdf8; font-weight: 600; margin-bottom: 10px; }
+        .quick-record-row { display: flex; gap: 8px; }
+        .quick-input { flex: 1; background: rgba(15,23,42,0.8); border: 1px solid rgba(56,189,248,0.2); border-radius: 10px; padding: 10px 12px; color: #e2e8f0; font-size: 0.85rem; outline: none; }
+        .quick-input:focus { border-color: rgba(56,189,248,0.5); }
+        .quick-input::placeholder { color: #475569; }
+        .quick-submit-btn { background: linear-gradient(135deg,#0ea5e9,#38bdf8); color: #0f172a; border: none; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .quick-submit-btn:active { opacity: 0.8; }
+        .quick-record-hint { font-size: 0.72rem; color: #475569; margin-top: 8px; }
+        .quick-diet-toggle { font-size: 0.78rem; color: #38bdf8; cursor: pointer; text-decoration: underline; margin-left: 8px; }
+
+        /* ============================================================
+           Phase 2: 训练计划页面
+           ============================================================ */
+        #trainingPage {
+            display: none; flex-direction: column; flex: 1;
+            overflow-y: auto; padding: 0 16px 24px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .training-plan-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 4px 14px; }
+        .tp-title { font-size: 1.3rem; font-weight: 800; color: #f1f5f9; }
+        .tp-gen-btn { padding: 8px 14px; background: rgba(14,165,233,0.12); border: 1px solid rgba(56,189,248,0.3); border-radius: 10px; color: #38bdf8; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+        .tp-gen-btn:hover { background: rgba(14,165,233,0.2); }
+        .tp-gen-btn-lg { display: block; width: 100%; padding: 14px; margin-top: 16px; background: linear-gradient(135deg,#0ea5e9,#38bdf8); color: #0f172a; border: none; border-radius: 12px; font-size: 0.95rem; font-weight: 700; cursor: pointer; }
+        .tp-empty-state { text-align: center; padding: 40px 24px; }
+        .tp-empty-icon { font-size: 3rem; margin-bottom: 12px; }
+        .tp-empty-text { font-size: 1.2rem; font-weight: 700; color: #94a3b8; margin-bottom: 8px; }
+        .tp-empty-sub { font-size: 0.82rem; color: #64748b; line-height: 1.6; }
+
+        .tp-plan-card { background: rgba(30,41,59,0.6); border: 1px solid rgba(56,189,248,0.15); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+        .tp-plan-title { font-size: 1rem; font-weight: 700; color: #38bdf8; margin-bottom: 8px; }
+        .tp-plan-overview { font-size: 0.82rem; color: #94a3b8; line-height: 1.6; }
+        .tp-plan-tags { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        .tp-tag { font-size: 0.72rem; padding: 3px 8px; border-radius: 6px; background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); }
+
+        .tp-day-card { background: rgba(30,41,59,0.4); border: 1px solid rgba(148,163,184,0.08); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+        .tp-day-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .tp-day-badge { background: linear-gradient(135deg,rgba(14,165,233,0.3),rgba(56,189,248,0.2)); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 4px 10px; font-size: 0.82rem; font-weight: 700; color: #38bdf8; }
+        .tp-day-split { font-size: 0.85rem; color: #cbd5e1; font-weight: 600; }
+        .tp-day-time { margin-left: auto; font-size: 0.75rem; color: #64748b; }
+
+        .tp-exercise-item { display: flex; flex-direction: column; padding: 10px 0; border-bottom: 1px solid rgba(148,163,184,0.06); }
+        .tp-exercise-item:last-child { border-bottom: none; }
+        .tp-ex-row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .tp-ex-name { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
+        .tp-ex-muscle { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(16,185,129,0.12); color: #10b981; }
+        .tp-ex-params { font-size: 0.78rem; color: #64748b; }
+        .tp-ex-tips { font-size: 0.75rem; color: #475569; font-style: italic; margin-top: 2px; }
+
+        .tp-plan-section { background: rgba(30,41,59,0.4); border: 1px solid rgba(148,163,184,0.08); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+        .tp-section-title { font-size: 0.85rem; font-weight: 700; color: #94a3b8; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .tp-routine-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 0.82rem; color: #cbd5e1; }
+        .tp-routine-item .dur { color: #38bdf8; font-weight: 600; min-width: 60px; }
+        .tp-notes-card { background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+        .tp-notes-card .tp-section-title { color: #f59e0b; }
+        .tp-note-item { font-size: 0.82rem; color: #cbd5e1; line-height: 1.7; padding: 3px 0; }
+
+        .tp-log-section { margin-top: 14px; }
+        .tp-log-item { background: rgba(30,41,59,0.4); border: 1px solid rgba(148,163,184,0.07); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+        .tp-log-row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .tp-log-name { font-size: 0.88rem; font-weight: 600; color: #e2e8f0; }
+        .tp-log-params { font-size: 0.75rem; color: #38bdf8; }
+        .tp-log-date { margin-left: auto; font-size: 0.72rem; color: #64748b; }
+
+        /* ============================================================
+           Phase 2: 里程碑弹窗
+           ============================================================ */
+        .milestone-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+            z-index: 9000; display: flex; align-items: center; justify-content: center;
+        }
+        .milestone-modal {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid rgba(56,189,248,0.3);
+            border-radius: 24px; padding: 36px 28px; text-align: center;
+            max-width: 320px; width: 90%; animation: milestoneIn 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
+        }
+        @keyframes milestoneIn { from { transform: scale(0.5) translateY(40px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .milestone-confetti { font-size: 2.5rem; margin-bottom: 8px; animation: confettiBounce 0.6s ease infinite alternate; }
+        @keyframes confettiBounce { from { transform: scale(1) rotate(-10deg); } to { transform: scale(1.2) rotate(10deg); } }
+        .milestone-title { font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+        .milestone-icon { font-size: 4rem; margin-bottom: 12px; }
+        .milestone-name { font-size: 1.4rem; font-weight: 800; color: #38bdf8; margin-bottom: 8px; }
+        .milestone-desc { font-size: 0.85rem; color: #94a3b8; line-height: 1.6; margin-bottom: 24px; }
+        .milestone-close { width: 100%; padding: 14px; background: linear-gradient(135deg,#0ea5e9,#38bdf8); color: #0f172a; border: none; border-radius: 12px; font-size: 0.95rem; font-weight: 700; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <!-- ============================================================
+         登录/注册页面（手机号+验证码）
+         ============================================================ -->
+    <div id="auth-page">
+        <div class="auth-logo">🏋️</div>
+        <div class="auth-title">AI 健身教练</div>
+        <div class="auth-subtitle">登录后同步你的健身数据<br>随时随地查看进度</div>
+        
+        <form class="auth-form" id="authForm">
+            <div class="phone-row">
+                <span class="phone-prefix">+86</span>
+                <input type="tel" class="auth-phone-input" id="authPhone" placeholder="请输入手机号" maxlength="11" required>
+            </div>
+            <div class="code-row">
+                <div class="code-input-wrap">
+                    <input type="text" class="auth-code-input" id="authCode" placeholder="请输入验证码" maxlength="6" required>
+                </div>
+                <button type="button" class="code-btn" id="sendCodeBtn">获取验证码</button>
+            </div>
+            <button type="submit" class="auth-btn" id="authSubmitBtn">登录 / 注册</button>
+        </form>
+        
+        <div class="auth-error" id="authError"></div>
+        <div class="auth-loading" id="authLoading">正在处理...</div>
+    </div>
+
+    <!-- ============================================================
+         ＡＰＰ 主界面（登录后显示）
+         ============================================================ -->
+    <div id="app" style="display:none;">
+
+    <!-- ========== 顶部栏 ========== -->
+    <div class="top-bar" id="topBarChat">
+        <div class="hamburger" id="hamburger" title="菜单">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </div>
+        <div class="top-title">
+            <div class="name">AI 健身教练</div>
+            <div class="sub">智能健身助手 · 专属训练计划</div>
+        </div>
+        <div class="top-chat-btn" id="topChatBtn" title="AI 聊天">💬</div>
+    </div>
+
+    <!-- ========== 首页 Dashboard ========== -->
+    <div id="homeContainer">
+        <div class="home-welcome">
+            <div class="home-greeting" id="homeGreeting"></div>
+            <div class="home-date" id="homeDate"></div>
+            <div class="home-encourage" id="homeEncourage"></div>
+        </div>
+
+        <div class="overview-grid">
+            <div class="overview-card">
+                <div class="ov-icon">🔥</div>
+                <div class="ov-value cal" id="ovCal">--</div>
+                <div class="ov-unit">kcal</div>
+                <div class="ov-label">目标卡路里</div>
+            </div>
+            <div class="overview-card">
+                <div class="ov-icon">⏱️</div>
+                <div class="ov-value dur" id="ovDuration">--</div>
+                <div class="ov-unit">min</div>
+                <div class="ov-label">已运动时长</div>
+            </div>
+            <div class="overview-card">
+                <div class="ov-icon">🔗</div>
+                <div class="ov-value streak" id="ovStreak">--</div>
+                <div class="ov-unit">天</div>
+                <div class="ov-label">连续打卡</div>
+            </div>
+        </div>
+
+        <button class="start-train-btn" id="startTrainBtn">
+            <span class="btn-icon">🏋️</span>
+            开始今日训练
+        </button>
+
+        <div class="home-quick-actions">
+            <div class="quick-action-card" id="qaChat">
+                <span class="qa-icon">💬</span>
+                <span class="qa-text">问问 AI 教练</span>
+            </div>
+            <div class="quick-action-card" id="qaCheckin">
+                <span class="qa-icon">✅</span>
+                <span class="qa-text">今日打卡</span>
+            </div>
+            <!-- 点外卖入口已移至聊天中 AI 确认流程触发 -->
+        </div>
+    </div>
+
+    <!-- ========== 聊天区域 ========== -->
+    <div class="chat-container" id="chatContainer">
+        <div class="welcome" id="welcome">
+            <div class="emoji">👋</div>
+            <div class="text">
+                你好！我是你的 AI 健身教练<br>
+                点击左上角 ☰ 菜单录入身体数据<br>
+                然后随时向我提问
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 数据看板 ========== -->
+    <div class="dashboard-container" id="dashboardContainer">
+        <div class="dashboard-header">
+            <h2>📊 我的数据</h2>
+        </div>
+
+        <!-- BMI & 健康状态 -->
+        <div class="dashboard-card">
+            <div class="card-title">BMI & 健康状态</div>
+            <div class="bmi-value" id="bmiValue">--</div>
+            <div class="bmi-status" id="bmiStatus">暂无数据</div>
+            <div class="current-weight" id="currentWeight"></div>
+        </div>
+
+        <!-- 今日打卡 -->
+        <div class="dashboard-card">
+            <div class="card-title">📅 今日打卡</div>
+            <div class="checkin-status" id="checkinStatus">
+                <div class="streak-text">连续打卡：<span id="streakDays">0</span> 天</div>
+                <div class="total-text">总打卡：<span id="totalDays">0</span> 天</div>
+            </div>
+            <button class="checkin-btn" id="checkinBtn">📅 立即打卡</button>
+            <div class="achievements" id="achievementsList"></div>
+        </div>
+
+        <!-- 成就展示 -->
+        <div class="dashboard-card">
+            <div class="card-title">🏆 我的成就</div>
+            <div class="achievements-grid" id="achievementsGrid"></div>
+        </div>
+
+        <!-- 热量摄入环形进度条 -->
+        <div class="dashboard-card">
+            <div class="card-title">今日热量摄入</div>
+            <div class="ring-container">
+                <canvas id="calorieRingChart" class="ring-chart"></canvas>
+                <div class="ring-text">
+                    <div class="ring-value" id="ringValue">0</div>
+                    <div class="ring-label" id="ringLabel">/ 2000 kcal</div>
+                </div>
+            </div>
+            <div class="calorie-text">
+                <span id="calorieConsumed">0</span> / <span id="calorieTarget">2000</span> kcal
+            </div>
+            <button class="goal-btn" id="goalSettingBtn">⚙️ 目标设定</button>
+        </div>
+
+        <!-- 营养摄入条形图 -->
+        <div class="dashboard-card">
+            <div class="card-title">今日营养成分</div>
+            <div class="nutrition-item">
+                <div class="nutrition-header">
+                    <span>蛋白质</span>
+                    <span id="proteinText">0 / 120 g</span>
+                </div>
+                <div class="nutrition-track">
+                    <div class="nutrition-fill protein" id="proteinBar" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="nutrition-item">
+                <div class="nutrition-header">
+                    <span>碳水化合物</span>
+                    <span id="carbText">0 / 300 g</span>
+                </div>
+                <div class="nutrition-track">
+                    <div class="nutrition-fill carb" id="carbBar" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="nutrition-item">
+                <div class="nutrition-header">
+                    <span>脂肪</span>
+                    <span id="fatText">0 / 65 g</span>
+                </div>
+                <div class="nutrition-track">
+                    <div class="nutrition-fill fat" id="fatBar" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 运动打卡日历 -->
+        <div class="dashboard-card">
+            <div class="card-title">本周运动打卡</div>
+            <div class="calendar" id="exerciseCalendar"></div>
+        </div>
+
+        <!-- 体重变化趋势 -->
+        <div class="dashboard-card">
+            <div class="card-title">体重变化趋势</div>
+            <canvas id="weightChart" height="180"></canvas>
+        </div>
+
+        <!-- 今日饮食记录 -->
+        <div class="dashboard-card">
+            <div class="card-title">今日饮食 <button class="add-btn" id="addDietBtn">+ 添加</button></div>
+            <div class="diet-list" id="dietList"><div class="empty-text">暂无记录，点击"添加"录入</div></div>
+            <!-- ★ Phase 2: 快速饮食记录（自然语言输入） -->
+            <div class="quick-record" id="quickDietRecord" style="display:none">
+                <div class="quick-record-title">🍽️ 快速记录（自然语言）</div>
+                <div class="quick-record-row">
+                    <input type="text" id="quickDietInput" placeholder='例如："一碗米饭两个鸡蛋"' class="quick-input">
+                    <button id="quickDietBtn" class="quick-submit-btn">记录</button>
+                </div>
+                <div class="quick-record-hint">AI 自动识别食物和热量 · 支持一次描述多种食物</div>
+            </div>
+            <button class="export-btn" id="exportReportBtn">📄 导出周报</button>
+            <button class="poster-btn" id="posterBtn">🎨 生成打卡海报</button>
+        </div>
+    </div>
+
+    <!-- ========== 训练页面（Phase 2: 个性化训练计划） ========== -->
+    <div id="trainingPage">
+        <div class="training-plan-header">
+            <div class="tp-title">🏋️ 我的训练计划</div>
+            <button class="tp-gen-btn" id="genPlanBtn">✨ AI 生成计划</button>
+        </div>
+        <!-- 计划展示区 -->
+        <div id="trainingPlanContainer">
+            <div class="tp-empty-state" id="tpEmptyState">
+                <div class="tp-empty-icon">💪</div>
+                <div class="tp-empty-text">还没有训练计划</div>
+                <div class="tp-empty-sub">告诉 AI 教练你的目标，它会为你生成专属计划</div>
+                <button class="tp-gen-btn-lg" id="genPlanBtnLg" onclick="goToChat('帮我制定一个训练计划，我是新手，目标是减脂，有哑铃，每周3次，每次60分钟')">去让 AI 生成计划</button>
+            </div>
+            <div id="tpPlanContent" style="display:none">
+                <!-- 计划标题和概述 -->
+                <div class="tp-plan-card" id="tpPlanHeader"></div>
+                <!-- 每日安排 -->
+                <div id="tpDailySchedule"></div>
+                <!-- 热身和放松 -->
+                <div class="tp-plan-section" id="tpWarmupCooldown"></div>
+                <!-- 注意事项 -->
+                <div class="tp-notes-card" id="tpNotes"></div>
+            </div>
+        </div>
+        <!-- 训练日志记录 -->
+        <div class="tp-log-section">
+            <div class="tp-section-title">📝 最近训练记录</div>
+            <div id="trainingLogList"><div class="empty-text">暂无训练记录</div></div>
+            <button class="add-btn" id="addTrainingLogBtn" style="margin-top:12px;width:100%;padding:12px;font-size:0.9rem;border-radius:12px;">+ 记录本次训练</button>
+        </div>
+        <button class="training-back-btn" id="trainingBackBtn">← 返回</button>
+    </div>
+
+    <!-- ========== 底部输入区 ========== -->
+    <div class="input-area" id="inputArea">
+        <div class="input-row" id="inputRow">
+            <!-- 左侧语音按钮 -->
+            <div class="btn-voice" id="btnVoice" title="语音输入">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="22"/>
+                </svg>
+            </div>
+            <!-- 输入框 -->
+            <textarea id="chatInput" rows="1" placeholder="尽管问，带图也行" ></textarea>
+            <!-- 右侧发送按钮 -->
+            <button class="btn-send" id="btnSend" title="发送">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;">
+                    <line x1="22" y1="2" x2="11" y2="13"/>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- ========== 底部导航栏 ========== -->
+    <div class="bottom-nav" id="bottomNav">
+        <div class="nav-item active" data-tab="home">
+            <span class="nav-icon">🏠</span>
+            <span>首页</span>
+        </div>
+        <div class="nav-item" data-tab="training">
+            <span class="nav-icon">🏋️</span>
+            <span>训练</span>
+        </div>
+        <div class="nav-item" data-tab="dashboard">
+            <span class="nav-icon">👤</span>
+            <span>我的</span>
+        </div>
+    </div>
+
+</div><!-- #app -->
+
+<!-- ========== ★ 训练计划生成弹窗 ========== -->
+<div class="modal-overlay" id="planGenOverlay" style="display:none">
+    <div class="modal-card">
+        <div class="modal-header">
+            <span>✨ AI 生成训练计划</span>
+            <span class="modal-close" id="planGenClose">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>训练目标</label>
+                <select id="planGoal">
+                    <option value="减脂">🔥 减脂</option>
+                    <option value="增肌">💪 增肌</option>
+                    <option value="维持">⚖️ 维持体型</option>
+                    <option value="力量">🏋️ 力量突破</option>
+                    <option value="耐力">🏃 耐力提升</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>训练经验</label>
+                <select id="planLevel">
+                    <option value="新手">🌱 新手（0-6个月）</option>
+                    <option value="中级">📗 中级（6个月-2年）</option>
+                    <option value="高级">🏆 高级（2年以上）</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>每周几天</label>
+                <select id="planDays">
+                    <option value="2">2 天</option>
+                    <option value="3" selected>3 天</option>
+                    <option value="4">4 天</option>
+                    <option value="5">5 天</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>每次时长（分钟）</label>
+                <select id="planMinutes">
+                    <option value="30">30 分钟</option>
+                    <option value="45">45 分钟</option>
+                    <option value="60" selected>60 分钟</option>
+                    <option value="90">90 分钟</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>可用器械</label>
+                <select id="planEquipment">
+                    <option value="无器械">🚶 无器械（徒手）</option>
+                    <option value="哑铃" selected>🏋️ 哑铃</option>
+                    <option value="杠铃+哑铃">🏗️ 杠铃 + 哑铃</option>
+                    <option value="完整健身房">🏢 完整健身房</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>重点部位</label>
+                <select id="planFocus">
+                    <option value="全身" selected>🔵 全身</option>
+                    <option value="上半身">🔼 上半身</option>
+                    <option value="下半身">🔽 下半身</option>
+                    <option value="胸部">🟠 胸部</option>
+                    <option value="背部">🟡 背部</option>
+                    <option value="腿部">🟣 腿部</option>
+                    <option value="核心">🔴 核心</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="save-btn" id="planGenSubmit">🚀 立即生成训练计划</button>
+        </div>
+    </div>
+</div>
+
+<!-- ========== ★ Phase 2: 里程碑弹窗 ========== -->
+<div class="milestone-overlay" id="milestoneOverlay" style="display:none">
+    <div class="milestone-modal">
+        <div class="milestone-confetti">🎉</div>
+        <div class="milestone-title">里程碑达成！</div>
+        <div class="milestone-icon" id="milestoneIcon">🔥</div>
+        <div class="milestone-name" id="milestoneName">连续打卡3天</div>
+        <div class="milestone-desc" id="milestoneDesc">坚持就是成功！</div>
+        <button class="milestone-close" id="milestoneClose">太棒了！继续加油 💪</button>
+    </div>
+</div>
+
+<!-- ========== 遮罩层 ========== -->
+<div class="overlay" id="overlay"></div>
+
+<!-- ========== 抽屉面板 ========== -->
+<div class="drawer" id="drawer">
+    <div class="drawer-header">
+        <span class="drawer-title">💪 AI 健身教练</span>
+        <span class="drawer-close" id="drawerClose">✕</span>
+    </div>
+    <div class="drawer-body">
+        <div class="section-title">📋 身体数据录入</div>
+        <form id="profileForm">
+            <div class="form-group">
+                <label>身高 <span class="unit">cm</span></label>
+                <input type="number" id="height" value="170" min="50" max="300">
+            </div>
+            <div class="form-group">
+                <label>体重 <span class="unit">kg</span></label>
+                <input type="number" id="weight" value="65" step="0.1" min="20" max="500">
+            </div>
+            <div class="form-group">
+                <label>年龄 <span class="unit">岁</span></label>
+                <input type="number" id="age" value="25" min="1" max="150">
+            </div>
+            <div class="form-group">
+                <label>性别</label>
+                <select id="gender"><option value="男">男</option><option value="女">女</option></select>
+            </div>
+            <button type="submit" class="save-btn" id="saveBtn">🏋️ 保存我的身体数据</button>
+        </form>
+        <div class="saved-data" id="savedData">
+            <div class="row"><span>身高</span><span id="savedHeight">-</span></div>
+            <div class="row"><span>体重</span><span id="savedWeight">-</span></div>
+            <div class="row"><span>年龄</span><span id="savedAge">-</span></div>
+            <div class="row"><span>性别</span><span id="savedGender">-</span></div>
+            <div class="row"><span>BMI</span><span id="savedBmi">-</span></div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-title">💬 对话管理</div>
+        <button class="action-btn" id="newChatBtn"><span>✨</span> 新建对话</button>
+        <button class="action-btn" id="historyBtn"><span>📋</span> 历史对话</button>
+        <div class="divider"></div>
+        <div class="section-title">👤 当前用户</div>
+        <span class="user-badge" id="userBadge">ID: user001</span>
+        <button class="action-btn" id="logoutBtn" style="margin-top:12px;color:#f87171;border-color:rgba(248,113,113,0.3);">
+            <span>🚪</span> 退出登录
+        </button>
+    </div>
+</div>
+
+<!-- ========== 目标设定弹窗 ========== -->
+<div class="modal-overlay" id="goalModal" style="display:none;">
+    <div class="modal-card">
+        <div class="modal-header">
+            <span>⚙️ 目标设定</span>
+            <span class="modal-close" id="goalModalClose">✕</span>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>每日热量目标（kcal）</label>
+                <input type="number" id="calorieTargetInput" value="2000" min="1000" max="5000">
+            </div>
+            <div class="form-group">
+                <label>蛋白质目标（g/天）</label>
+                <input type="number" id="proteinTargetInput" value="120" min="0" max="500">
+            </div>
+            <div class="form-group">
+                <label>碳水目标（g/天）</label>
+                <input type="number" id="carbTargetInput" value="300" min="0" max="1000">
+            </div>
+            <div class="form-group">
+                <label>脂肪目标（g/天）</label>
+                <input type="number" id="fatTargetInput" value="65" min="0" max="500">
+            </div>
+            <div class="form-group">
+                <label>每周运动目标（分钟/周）</label>
+                <input type="number" id="exerciseTargetInput" value="300" min="0" max="1000">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="save-btn" id="saveGoalBtn">保存设定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // 快捷函数：等价于 document.getElementById
+    var $ = function(id) { return document.getElementById(id); };
+
+    // ★ 第十四步：JWT 鉴权逻辑
+    // ============================================================
+    
+    // Token 管理
+    var AUTH_TOKEN = localStorage.getItem('auth_token') || '';
+    var CURRENT_USER = null;  // {user_id, phone}
+    
+    function saveToken(token, user_id, phone) {
+        AUTH_TOKEN = token;
+        CURRENT_USER = {user_id: user_id, phone: phone};
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('current_user', JSON.stringify(CURRENT_USER));
+        console.log('[Auth] Token 已保存:', user_id, phone);
+    }
+    
+    function clearToken() {
+        AUTH_TOKEN = '';
+        CURRENT_USER = null;
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('current_user');
+        console.log('[Auth] Token 已清除');
+    }
+    
+    function getAuthHeaders() {
+        var headers = {'Content-Type': 'application/json'};
+        if (AUTH_TOKEN) {
+            headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+        }
+        return headers;
+    }
+    
+    function getAuthHeadersForm() {
+        var headers = {};
+        if (AUTH_TOKEN) {
+            headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+        }
+        return headers;
+    }
+    
+    // 检查 Token 是否有效
+    async function checkAuth() {
+        if (!AUTH_TOKEN) {
+            showAuthPage();
+            return false;
+        }
+        
+        try {
+            var resp = await fetch('/api/auth/me', {
+                headers: getAuthHeaders()
+            });
+            
+            if (resp.ok) {
+                var data = await resp.json();
+                CURRENT_USER = {user_id: data.user_id, phone: data.phone};
+                localStorage.setItem('current_user', JSON.stringify(CURRENT_USER));
+                showMainPage();
+                return true;
+            } else {
+                clearToken();
+                showAuthPage();
+                return false;
+            }
+        } catch (e) {
+            console.error('[Auth] 检查 Token 失败:', e);
+            clearToken();
+            showAuthPage();
+            return false;
+        }
+    }
+    
+    function showAuthPage() {
+        $('auth-page').style.display = 'flex';
+        $('app').style.display = 'none';
+    }
+    
+    function showMainPage() {
+        $('auth-page').style.display = 'none';
+        $('app').style.display = 'flex';
+        USER_ID = CURRENT_USER.user_id;
+        console.log('[Auth] 已登录:', USER_ID, CURRENT_USER.phone);
+        // 更新抽屉里的用户 ID 显示
+        var badge = document.getElementById('userBadge');
+        if (badge) {
+            badge.textContent = 'ID: ' + USER_ID + '  (' + CURRENT_USER.phone + ')';
+        }
+        // 默认显示首页
+        showPage('home');
+        renderHome();
+    }
+    
+    // 登录/注册表单处理（手机号 + 验证码模式）
+    // 等 DOM 完全加载后再绑定事件，避免元素还未解析
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- 获取验证码按钮 ---
+        var codeCountdown = 0;
+        var codeTimer = null;
+
+        var sendCodeBtn = document.getElementById('sendCodeBtn');
+        if (!sendCodeBtn) {
+            console.error('[Auth] sendCodeBtn not found!');
+            return;
+        }
+        console.log('[Auth] sendCodeBtn found, binding click...');
+
+        sendCodeBtn.addEventListener('click', async function() {
+            console.log('[Auth] sendCodeBtn clicked!');
+            var phone = document.getElementById('authPhone').value.trim();
+
+            if (!phone) {
+                showToast('请先输入手机号', 'error');
+                return;
+            }
+            if (!/^1\d{10}$/.test(phone)) {
+                showToast('请输入正确的11位手机号', 'error');
+                return;
+            }
+            if (sendCodeBtn.dataset.counting === '1') return;
+
+            sendCodeBtn.disabled = true;
+            sendCodeBtn.dataset.counting = '1';
+            console.log('[Auth] 正在发送验证码到:', phone);
+
+            try {
+                var resp = await fetch('/api/auth/send_code', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({phone: phone})
+                });
+                var data = await resp.json();
+                console.log('[Auth] send_code response:', data);
+
+                if (data.success) {
+                    var msg = '验证码已发送';
+                    if (data.code) msg += '（开发模式：' + data.code + '）';
+                    showToast(msg, 'success');
+
+                    // 清除之前的倒计时（如果有）
+                    if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
+
+                    var seconds = 60;
+                    sendCodeBtn.textContent = seconds + 's 后重试';
+                    codeTimer = setInterval(function() {
+                        seconds--;
+                        if (seconds > 0) {
+                            sendCodeBtn.textContent = seconds + 's 后重试';
+                        } else {
+                            clearInterval(codeTimer);
+                            codeTimer = null;
+                            sendCodeBtn.disabled = false;
+                            sendCodeBtn.textContent = '获取验证码';
+                            sendCodeBtn.dataset.counting = '0';
+                        }
+                    }, 1000);
+                } else {
+                    showToast(data.error || '发送失败，请重试', 'error');
+                    sendCodeBtn.disabled = false;
+                    sendCodeBtn.dataset.counting = '0';
+                }
+            } catch (e) {
+                console.error('[Auth] send_code error:', e);
+                showToast('网络错误，请稍后重试', 'error');
+                sendCodeBtn.disabled = false;
+                sendCodeBtn.dataset.counting = '0';
+            }
+        });
+
+        // --- 登录/注册表单提交 ---
+        var authForm = document.getElementById('authForm');
+        if (!authForm) {
+            console.error('[Auth] authForm not found!');
+        } else {
+            console.log('[Auth] authForm found, binding submit...');
+            authForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                console.log('[Auth] authForm submitted!');
+
+                var phone = document.getElementById('authPhone').value.trim();
+                var code = document.getElementById('authCode').value.trim();
+
+                if (!phone || !code) {
+                    showToast('请输入手机号和验证码', 'error');
+                    return;
+                }
+
+                document.getElementById('authLoading').style.display = 'block';
+                document.getElementById('authSubmitBtn').disabled = true;
+
+                try {
+                    var resp = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({phone: phone, code: code})
+                    });
+                    var data = await resp.json();
+                    console.log('[Auth] login response:', data);
+
+                    if (data.success) {
+                        showToast('登录成功！', 'success');
+                        saveToken(data.token, data.user_id, data.phone);
+                        showMainPage();
+                        authForm.reset();
+                        // ★ 重置验证码倒计时状态（防止退出后重新获取时被拦截）
+                        if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
+                        codeCountdown = 0;
+                        sendCodeBtn.disabled = false;
+                        sendCodeBtn.dataset.counting = '0';
+                        sendCodeBtn.textContent = '获取验证码';
+                    } else {
+                        showToast(data.error || '登录失败，请检查验证码', 'error');
+                    }
+                } catch (e) {
+                    console.error('[Auth] login error:', e);
+                    showToast('网络错误，请稍后重试', 'error');
+                } finally {
+                    document.getElementById('authLoading').style.display = 'none';
+                    document.getElementById('authSubmitBtn').disabled = false;
+                }
+            });
+        }
+        // --- 退出登录 ---
+        var logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', function() {
+                clearToken();
+                USER_ID = 'user001';
+                // 重置首页数据
+                $('ovCal').textContent = '--';
+                $('ovDuration').textContent = '--';
+                $('ovStreak').textContent = '--';
+                $('homeGreeting').textContent = '';
+                $('homeDate').textContent = '';
+                $('homeEncourage').textContent = '';
+                // 清空聊天记录显示
+                chatContainer.innerHTML = '';
+                chatContainer.appendChild(welcome);
+                welcome.style.display = '';
+                // ★ 重置验证码按钮状态（防止倒计时残留）
+                if (codeTimer) { clearInterval(codeTimer); codeTimer = null; }
+                codeCountdown = 0;
+                if (sendCodeBtn) {
+                    sendCodeBtn.disabled = false;
+                    sendCodeBtn.dataset.counting = '0';
+                    sendCodeBtn.textContent = '获取验证码';
+                }
+                showAuthPage();
+                closeDrawer();
+                showToast('已退出登录', 'success');
+            });
+        }
+
+    // end DOMContentLoaded
+    });
+    
+    // ============================================================
+    // 原有代码开始
+    // ============================================================
+    var USER_ID = CURRENT_USER ? CURRENT_USER.user_id : 'user001';
+    var SSE_TIMEOUT = 60000;
+
+    // ============================================================
+    // DOM 引用
+    // ============================================================
+
+    var chatContainer   = $('chatContainer');
+    var welcome         = $('welcome');
+    var chatInput       = $('chatInput');
+    var btnSend         = $('btnSend');
+    var btnVoice        = $('btnVoice');
+    var inputArea       = $('inputArea');
+    var overlay         = $('overlay');
+    var drawer          = $('drawer');
+    var hamburger       = $('hamburger');
+    var drawerClose     = $('drawerClose');
+    var profileForm     = $('profileForm');
+    var saveBtn         = $('saveBtn');
+    var newChatBtn      = $('newChatBtn');
+    var historyBtn      = $('historyBtn');
+    var dashboardContainer = $('dashboardContainer');
+    var goalSettingBtn = $('goalSettingBtn');
+    var goalModal       = $('goalModal');
+    var goalModalClose = $('goalModalClose');
+    var saveGoalBtn     = $('saveGoalBtn');
+    var addDietBtn      = $('addDietBtn');
+    var exportReportBtn = $('exportReportBtn');
+    var savedData       = $('savedData');
+    var bottomNav       = $('bottomNav');
+    var homeContainer   = $('homeContainer');
+    var trainingPage    = $('trainingPage');
+    var topChatBtn      = $('topChatBtn');
+    var startTrainBtn   = $('startTrainBtn');
+    var trainingBackBtn = $('trainingBackBtn');
+    var qaChat         = $('qaChat');
+    var qaCheckin      = $('qaCheckin');
+
+    var exerciseChart = null;
+    var weightChart   = null;
+    var calorieRingChart = null;
+
+    // ============================================================
+    // 工具函数
+    // ============================================================
+    function showToast(msg, type) {
+        // 先移除所有已有的 Toast（防止堆积）
+        var existing = document.querySelectorAll('.toast');
+        for (var i = 0; i < existing.length; i++) {
+            existing[i].remove();
+        }
+
+        var toast = document.createElement('div');
+        toast.className = 'toast ' + (type || 'success');
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.classList.add('show'); }, 10);
+        setTimeout(function() {
+            toast.classList.remove('show');
+            setTimeout(function() { toast.remove(); }, 300);
+        }, 2500);
+    }
+
+    function scrollToBottom() {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // 让 textarea 自动增高
+    function autoResizeTextarea() {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
+    }
+
+    // ============================================================
+    // 页面切换
+    // ============================================================
+    function showPage(page) {
+        // 隐藏所有页面
+        homeContainer.style.display = 'none';
+        chatContainer.style.display = 'none';
+        inputArea.style.display = 'none';
+        dashboardContainer.style.display = 'none';
+        trainingPage.style.display = 'none';
+
+        // 重置底部导航高亮
+        var navItems = bottomNav.querySelectorAll('.nav-item');
+        navItems.forEach(function(n) { n.classList.remove('active'); });
+
+        if (page === 'home') {
+            homeContainer.style.display = 'flex';
+            // 高亮首页 Tab
+            var homeTab = bottomNav.querySelector('[data-tab="home"]');
+            if (homeTab) homeTab.classList.add('active');
+            renderHome();
+        } else if (page === 'chat') {
+            chatContainer.style.display = 'flex';
+            inputArea.style.display = '';
+        } else if (page === 'dashboard') {
+            dashboardContainer.style.display = 'flex';
+            loadDashboard();
+            // 高亮我的 Tab
+            var dashTab = bottomNav.querySelector('[data-tab="dashboard"]');
+            if (dashTab) dashTab.classList.add('active');
+        } else if (page === 'training') {
+            trainingPage.style.display = 'flex';
+            // 高亮训练 Tab
+            var trainTab = bottomNav.querySelector('[data-tab="training"]');
+            if (trainTab) trainTab.classList.add('active');
+            loadTrainingPage();
+        }
+    }
+
+    // ============================================================
+    // 首页渲染
+    // ============================================================
+    function renderHome() {
+        // 1. 欢迎语 + 日期
+        var now = new Date();
+        var hour = now.getHours();
+        var greet = '晚上好';
+        if (hour >= 5  && hour < 12) greet = '早上好';
+        else if (hour >= 12 && hour < 14) greet = '中午好';
+        else if (hour >= 14 && hour < 18) greet = '下午好';
+
+        var month = now.getMonth() + 1;
+        var day = now.getDate();
+        var weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+        var weekDay = weekDays[now.getDay()];
+
+        var greetEl = $('homeGreeting');
+        greetEl.innerHTML = '<span class="emoji">👋</span>' + greet + '，';
+
+        $('homeDate').textContent = '今天是 ' + month + '月' + day + '日 星期' + weekDay;
+
+        // AI 鼓励语（随机选一句）
+        var encourages = [
+            '今天也要坚持锻炼哦！💪',
+            '每一次训练，都是更好的自己 ✨',
+            '坚持就是胜利，加油！🔥',
+            '你的努力，身体会记住的 💚',
+            '今天也是充满能量的一天！⚡',
+            '动起来，遇见更棒的自己 🏃',
+        ];
+        var idx = now.getDate() % encourages.length;
+        $('homeEncourage').textContent = encourages[idx];
+
+        // 2. 加载概览数据
+        fetch('/api/dashboard/summary', {
+            headers: getAuthHeaders()
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (!result.success) return;
+            var d = result.data;
+            // 目标卡路里
+            var calTarget = d.calorie_target || 2000;
+            var calConsumed = d.today_calories || 0;
+            $('ovCal').textContent = calConsumed + ' / ' + calTarget;
+
+            // 运动时长
+            var duration = (d.today_exercise && d.today_exercise.duration) ? d.today_exercise.duration : 0;
+            $('ovDuration').textContent = duration;
+
+            // 连续打卡
+            $('ovStreak').textContent = d.checkin_streak || 0;
+        })
+        .catch(function() {});
+    }
+
+    // ============================================================
+    // 抽屉逻辑
+    // ============================================================
+    function openDrawer()  { drawer.classList.add('open'); overlay.classList.add('visible'); }
+    function closeDrawer() { drawer.classList.remove('open'); overlay.classList.remove('visible'); }
+    hamburger.addEventListener('click', openDrawer);
+    drawerClose.addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', closeDrawer);
+
+    // ============================================================
+    // 底部导航栏切换
+    // ============================================================
+    var navItems = bottomNav.querySelectorAll('.nav-item');
+    navItems.forEach(function(item) {
+        item.addEventListener('click', function() {
+            var tab = this.dataset.tab;
+            showPage(tab);
+        });
+    });
+
+    // ============================================================
+    // 顶部聊天按钮 & 首页快捷操作
+    // ============================================================
+    topChatBtn.addEventListener('click', function() { showPage('chat'); });
+    qaChat.addEventListener('click', function() { showPage('chat'); });
+    qaCheckin.addEventListener('click', function() {
+        showPage('dashboard');
+        // 触发打卡
+        checkinBtn.click();
+    });
+
+    // 开始训练按钮
+    startTrainBtn.addEventListener('click', function() { showPage('training'); loadTrainingPage(); });
+    trainingBackBtn.addEventListener('click', function() { showPage('home'); });
+
+    // ============================================================
+    // ★ Phase 2: 快速饮食记录（自然语言）
+    // ============================================================
+    // 添加饮食按钮：切换显示快速记录区
+    $('addDietBtn').addEventListener('click', function() {
+        var quickRecord = $('quickDietRecord');
+        if (quickRecord.style.display === 'none') {
+            quickRecord.style.display = 'block';
+            $('quickDietInput').focus();
+        } else {
+            quickRecord.style.display = 'none';
+        }
+    });
+
+    // 快速记录提交
+    $('quickDietBtn').addEventListener('click', function() {
+        var desc = $('quickDietInput').value.trim();
+        if (!desc) { showToast('请输入饮食描述', 'error'); return; }
+        $('quickDietBtn').disabled = true;
+        $('quickDietBtn').textContent = '识别中...';
+
+        // 优先通过 AI 工具记录
+        var chatMsg = '请帮我记录饮食：' + desc;
+        $('chatInput').value = chatMsg;
+        sendMessage(chatMsg);
+
+        $('quickDietInput').value = '';
+        $('quickDietRecord').style.display = 'none';
+        $('quickDietBtn').disabled = false;
+        $('quickDietBtn').textContent = '记录';
+        showPage('home');
+    });
+
+    // 回车也可以提交
+    $('quickDietInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') $('quickDietBtn').click();
+    });
+
+    // ============================================================
+    // ★ Phase 2: 训练计划页面
+    // ============================================================
+    function loadTrainingPage() {
+        // 加载训练计划
+        fetch('/api/training/plan', { headers: getAuthHeaders() })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success && result.data) {
+                    renderTrainingPlan(result.data);
+                } else {
+                    $('tpEmptyState').style.display = 'block';
+                    $('tpPlanContent').style.display = 'none';
+                }
+            }).catch(function() {
+                $('tpEmptyState').style.display = 'block';
+                $('tpPlanContent').style.display = 'none';
+            });
+
+        // 加载训练日志
+        fetch('/api/training/log?days=14', { headers: getAuthHeaders() })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) renderTrainingLogs(result.data);
+            }).catch(function() {});
+    }
+
+    function renderTrainingPlan(plan) {
+        $('tpEmptyState').style.display = 'none';
+        $('tpPlanContent').style.display = 'block';
+
+        // 计划头部
+        var headerHtml = '<div class="tp-plan-title">' + escapeHtml(plan.title || '训练计划') + '</div>' +
+            '<div class="tp-plan-overview">' + escapeHtml(plan.overview || '') + '</div>' +
+            '<div class="tp-plan-tags">' +
+            '<span class="tp-tag">📅 每周' + (plan.days_per_week || '-') + '次</span>' +
+            '<span class="tp-tag">⏱ 每次' + (plan.session_minutes || '-') + '分钟</span>' +
+            '<span class="tp-tag">🔧 ' + escapeHtml(plan.equipment || '无器械') + '</span>' +
+            '</div>';
+        $('tpPlanHeader').innerHTML = headerHtml;
+
+        // 每日安排
+        var scheduleHtml = '';
+        (plan.weekly_schedule || []).forEach(function(day) {
+            scheduleHtml += '<div class="tp-day-card">' +
+                '<div class="tp-day-header">' +
+                '<span class="tp-day-badge">' + escapeHtml(day.day) + '</span>' +
+                '<span class="tp-day-split">' + escapeHtml(day.split) + '</span>' +
+                '<span class="tp-day-time">' + escapeHtml(day.estimated_time || '') + '</span>' +
+                '</div>';
+            (day.exercises || []).forEach(function(ex) {
+                scheduleHtml += '<div class="tp-exercise-item">' +
+                    '<div class="tp-ex-row1">' +
+                    '<span class="tp-ex-name">' + escapeHtml(ex.name) + '</span>' +
+                    '<span class="tp-ex-muscle">' + escapeHtml(ex.muscle_group) + '</span>' +
+                    '</div>' +
+                    '<div class="tp-ex-params">' + escapeHtml(ex.sets) + ' × ' + escapeHtml(ex.reps) + ' · 休息' + escapeHtml(ex.rest) + '</div>' +
+                    '<div class="tp-ex-tips">💡 ' + escapeHtml(ex.tips || '') + '</div>' +
+                    '</div>';
+            });
+            scheduleHtml += '</div>';
+        });
+        $('tpDailySchedule').innerHTML = scheduleHtml;
+
+        // 热身和放松
+        var warmHtml = '<div class="tp-section-title">🔥 热身 & 放松</div>';
+        (plan.warm_up || []).forEach(function(item) {
+            warmHtml += '<div class="tp-routine-item"><span class="dur">' + escapeHtml(item.duration) + '</span><span>' + escapeHtml(item.name) + ' — ' + escapeHtml(item.note) + '</span></div>';
+        });
+        warmHtml += '<div style="margin-top:10px;margin-bottom:6px;font-size:0.78rem;color:#64748b;">训练后放松</div>';
+        (plan.cool_down || []).forEach(function(item) {
+            warmHtml += '<div class="tp-routine-item"><span class="dur">' + escapeHtml(item.duration) + '</span><span>' + escapeHtml(item.name) + ' — ' + escapeHtml(item.note) + '</span></div>';
+        });
+        $('tpWarmupCooldown').innerHTML = warmHtml;
+
+        // 注意事项
+        var notesHtml = '<div class="tp-section-title">📌 注意事项</div>';
+        (plan.notes || []).forEach(function(note) {
+            notesHtml += '<div class="tp-note-item">' + escapeHtml(note) + '</div>';
+        });
+        $('tpNotes').innerHTML = notesHtml;
+    }
+
+    function renderTrainingLogs(logs) {
+        var el = $('trainingLogList');
+        if (!logs || logs.length === 0) {
+            el.innerHTML = '<div class="empty-text">暂无训练记录</div>';
+            return;
+        }
+        var html = '';
+        logs.slice(0, 10).forEach(function(log) {
+            html += '<div class="tp-log-item">' +
+                '<div class="tp-log-row1">' +
+                '<span class="tp-log-name">' + escapeHtml(log.exercise) + '</span>' +
+                '<span class="tp-log-params">' + log.sets + '组×' + escapeHtml(log.reps) + (log.weight > 0 ? ' @' + log.weight + 'kg' : '') + '</span>' +
+                '<span class="tp-log-date">' + escapeHtml(log.date) + '</span>' +
+                '</div>' +
+                '</div>';
+        });
+        el.innerHTML = html;
+    }
+
+    // AI 生成计划按钮 - 打开弹窗
+    if ($('genPlanBtn')) {
+        $('genPlanBtn').addEventListener('click', function() {
+            showPlanGenModal();
+        });
+    }
+    if ($('genPlanBtnLg')) {
+        $('genPlanBtnLg').addEventListener('click', function() {
+            showPlanGenModal();
+        });
+    }
+
+    // ★ 训练计划生成弹窗交互
+    function showPlanGenModal() {
+        $('planGenOverlay').style.display = 'flex';
+    }
+    $('planGenClose').addEventListener('click', function() {
+        $('planGenOverlay').style.display = 'none';
+    });
+    $('planGenOverlay').addEventListener('click', function(e) {
+        if (e.target === $('planGenOverlay')) {
+            $('planGenOverlay').style.display = 'none';
+        }
+    });
+
+    // 提交生成
+    $('planGenSubmit').addEventListener('click', function() {
+        var btn = $('planGenSubmit');
+        btn.disabled = true;
+        btn.textContent = '⏳ 正在生成...';
+
+        var formData = new FormData();
+        formData.append('goal', $('planGoal').value);
+        formData.append('experience_level', $('planLevel').value);
+        formData.append('days_per_week', $('planDays').value);
+        formData.append('session_minutes', $('planMinutes').value);
+        formData.append('available_equipment', $('planEquipment').value);
+        formData.append('focus_area', $('planFocus').value);
+
+        fetch('/api/training/generate', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) {
+                $('planGenOverlay').style.display = 'none';
+                showToast('训练计划已生成！', 'success');
+                // 刷新训练计划页面
+                fetch('/api/training/plan', { headers: getAuthHeaders() })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (res.success && res.data) {
+                            renderTrainingPlan(res.data);
+                        }
+                    });
+                // 刷新训练日志
+                fetch('/api/training/log?days=14', { headers: getAuthHeaders() })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (res.success) renderTrainingLogs(res.data);
+                    });
+            } else {
+                showToast('生成失败: ' + (result.message || '未知错误'), 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('网络错误，请重试', 'error');
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = '🚀 立即生成训练计划';
+        });
+    });
+
+    // 记录训练按钮
+    if ($('addTrainingLogBtn')) {
+        $('addTrainingLogBtn').addEventListener('click', function() {
+            goToChat('我刚完成了训练，帮我记录一下今天的训练');
+        });
+    }
+
+    // goToChat: 跳转到聊天页面并填入消息
+    function goToChat(msg) {
+        showPage('home');
+        $('chatInput').value = msg;
+        autoResizeTextarea();
+        $('chatInput').focus();
+    }
+
+    // ============================================================
+    // ★ Phase 2: 里程碑弹窗
+    // ============================================================
+    var milestoneOverlay = $('milestoneOverlay');
+    $('milestoneClose').addEventListener('click', function() {
+        milestoneOverlay.style.display = 'none';
+    });
+
+    function showMilestone(icon, name, desc) {
+        $('milestoneIcon').textContent = icon;
+        $('milestoneName').textContent = name;
+        $('milestoneDesc').textContent = desc;
+        milestoneOverlay.style.display = 'flex';
+        // 3秒后自动关闭
+        setTimeout(function() { milestoneOverlay.style.display = 'none'; }, 6000);
+    }
+
+    // 暴露给全局（AI 回复解析时可调用）
+    window.showMilestone = showMilestone;
+
+    // ============================================================
+    // 语音输入（Web Speech API）
+    // ============================================================
+    var recognition = null;
+    btnVoice.addEventListener('click', function() {
+        if (recognition && recognition._active) {
+            recognition.stop();
+            return;
+        }
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) { showToast('浏览器不支持语音输入', 'error'); return; }
+        recognition = new SR();
+        recognition.lang = 'zh-CN';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognition._active = true;
+        btnVoice.classList.add('recording');
+        recognition.onresult = function(e) {
+            chatInput.value = e.results[0][0].transcript;
+            autoResizeTextarea();
+            chatInput.focus();
+        };
+        recognition.onend = function() {
+            recognition._active = false;
+            btnVoice.classList.remove('recording');
+        };
+        recognition.onerror = function() {
+            recognition._active = false;
+            btnVoice.classList.remove('recording');
+        };
+        recognition.start();
+    });
+
+    // ============================================================
+    // 发送消息（SSE 流式）
+    // ============================================================
+    function sendMessage(text) {
+        if (!text || !text.trim()) return;
+        welcome.style.display = 'none';
+
+        // 添加用户消息气泡
+        appendMessage('user', text);
+
+        // 清空输入框
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+
+        // 添加 AI 思考中指示器
+        var thinkingEl = appendThinking();
+
+        // 发送 SSE 请求
+        var assistantBubble = null;
+        var fullText = '';
+        var controller = new AbortController();
+
+        fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify({ message: text, image: window.__pendingImage }),  // ★ 移除 user_id
+            signal: controller.signal,
+        })
+        .then(function(r) {
+            if (r.status === 401) {
+                // Token 过期或无效，清除并跳回登录
+                clearToken();
+                showAuthPage();
+                throw new Error('AUTH_EXPIRED');
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            var reader = r.body.getReader();
+            var decoder = new TextDecoder();
+
+            function read() {
+                return reader.read().then(function(result) {
+                    if (result.done) {
+                        // 流结束
+                        if (thinkingEl) thinkingEl.remove();
+                        if (assistantBubble) {
+                            showTTSButton(assistantBubble);
+                            // 保存对话到后端
+                            saveChatHistory();
+                        }
+                        return;
+                    }
+                    var chunk = decoder.decode(result.value, { stream: true });
+                    var lines = chunk.split('\n');
+                    lines.forEach(function(line) {
+                        if (!line.startsWith('data: ')) return;
+                        var dataStr = line.slice(6);
+                        if (dataStr === '[DONE]') return;
+                        try {
+                            var data = JSON.parse(dataStr);
+                            if (data.confirmation_required) {
+                                // ★ Human-in-the-loop：收到确认请求
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                // 移除未完成的气泡
+                                if (assistantBubble) {
+                                    assistantBubble.remove();
+                                    assistantBubble = null;
+                                }
+                                // 显示确认弹窗
+                                showConfirmDialog(data.confirmation_required);
+                                return; // 停止读取流
+                            } else if (data.token) {
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                if (!assistantBubble) {
+                                    assistantBubble = appendMessage('assistant', '');
+                                }
+                                fullText += data.token;
+                                assistantBubble.innerHTML = escapeHtml(fullText) + '<span class="cursor">▌</span>';
+                                scrollToBottom();
+                            } else if (data.thinking) {
+                                if (thinkingEl) {
+                                    thinkingEl.querySelector('.thinking-text').textContent = data.thinking;
+                                }
+                            } else if (data.error) {
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                appendMessage('assistant', '⚠️ ' + data.error);
+                            }
+                        } catch(e) {}
+                    });
+                    return read();
+                });
+            }
+            return read();
+        })
+        .catch(function(err) {
+            if (thinkingEl) thinkingEl.remove();
+            if (err.message === 'AUTH_EXPIRED') {
+                // 已在 .then() 中处理 → 清除 token + 跳转登录
+                return;
+            }
+            if (err.name === 'AbortError') return;
+            // 其他错误：显示具体信息
+            var errMsg = err.message || '未知错误';
+            if (errMsg.includes('NetworkError') || errMsg.includes('Failed to fetch')) {
+                appendMessage('assistant', '⚠️ 无法连接后端服务，请确认服务已启动。');
+            } else {
+                appendMessage('assistant', '⚠️ 连接失败: ' + errMsg);
+            }
+        });
+    }
+
+    function appendMessage(role, content) {
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'message ' + role;
+        var avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = role === 'user' ? '👤' : '💪';
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        if (content) bubble.textContent = content;
+        msgDiv.appendChild(avatar);
+        msgDiv.appendChild(bubble);
+        chatContainer.appendChild(msgDiv);
+        scrollToBottom();
+        return bubble;
+    }
+
+    function appendThinking() {
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'message assistant';
+        msgDiv.id = 'thinking-' + Date.now();
+        var avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = '💪';
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.innerHTML = '<div class="thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="thinking-text" style="color:#64748b;font-size:0.82rem;">思考中...</span>';
+        msgDiv.appendChild(avatar);
+        msgDiv.appendChild(bubble);
+        chatContainer.appendChild(msgDiv);
+        scrollToBottom();
+        return msgDiv;
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // ============================================================
+    // TTS 语音播放
+    // ============================================================
+    function showTTSButton(bubble) {
+        if (bubble.querySelector('.tts-bar')) return;
+        var ttsBar = document.createElement('div');
+        ttsBar.className = 'tts-bar show';
+        var ttsBtn = document.createElement('button');
+        ttsBtn.className = 'tts-btn';
+        ttsBtn.innerHTML = '🔊 播放语音';
+        ttsBtn.addEventListener('click', function() { playTTS(bubble, ttsBtn); });
+        ttsBar.appendChild(ttsBtn);
+        bubble.appendChild(ttsBar);
+    }
+
+    function playTTS(bubble, ttsBtn) {
+        var textContent = bubble.childNodes[0] ? bubble.childNodes[0].textContent : '';
+        var ttsSpans = bubble.querySelectorAll('.tts-bar');
+        for (var i = 0; i < ttsSpans.length; i++) {
+            var sp = ttsSpans[i].querySelector('.tts-btn');
+            if (sp && sp !== ttsBtn) { sp.classList.remove('playing'); sp.innerHTML = '🔊 播放语音'; sp.dataset.playing = 'false'; }
+        }
+        if (window.currentAudio) { window.currentAudio.pause(); window.currentAudio = null; }
+        if (ttsBtn.dataset.playing === 'true') { ttsBtn.dataset.playing = 'false'; ttsBtn.innerHTML = '🔊 播放语音'; ttsBtn.classList.remove('playing'); return; }
+
+        ttsBtn.classList.add('playing');
+        ttsBtn.innerHTML = '⏸ 播放中...';
+        ttsBtn.disabled = true;
+        ttsBtn.dataset.playing = 'true';
+
+        fetch('/api/tts', {
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify({ text: textContent })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) {
+                var audio = new Audio('data:audio/mp3;base64,' + result.audio);
+                window.currentAudio = audio;
+                audio.addEventListener('ended', resetTTSButton);
+                audio.addEventListener('error', function() { resetTTSButton(); playTTSWebSpeech(textContent); });
+                audio.play();
+            } else {
+                resetTTSButtonState();
+                playTTSWebSpeech(textContent);
+            }
+        })
+        .catch(function() {
+            resetTTSButtonState();
+            playTTSWebSpeech(textContent);
+        });
+
+        function resetTTSButton() {
+            ttsBtn.classList.remove('playing'); ttsBtn.innerHTML = '🔊 播放语音'; ttsBtn.disabled = false; ttsBtn.dataset.playing = 'false';
+            window.currentAudio = null;
+        }
+        function resetTTSButtonState() {
+            ttsBtn.classList.remove('playing'); ttsBtn.innerHTML = '🔊 播放语音'; ttsBtn.disabled = false; ttsBtn.dataset.playing = 'false';
+        }
+    }
+
+    function playTTSWebSpeech(text) {
+        if (!('speechSynthesis' in window)) { showToast('浏览器不支持语音播放', 'error'); return; }
+        window.speechSynthesis.cancel();
+        var utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'zh-CN'; utter.rate = 1.0; utter.pitch = 1.1;
+        var voices = window.speechSynthesis.getVoices();
+        for (var i = 0; i < voices.length; i++) {
+            if (voices[i].lang.startsWith('zh')) { utter.voice = voices[i]; break; }
+        }
+        utter.onend = function() { window.currentAudio = null; };
+        window.speechSynthesis.speak(utter);
+        window.currentAudio = { pause: function() { window.speechSynthesis.pause(); } };
+        showToast('正在使用浏览器语音播放...', 'success');
+    }
+
+    // ============================================================
+    // 保存/恢复聊天历史
+    // ============================================================
+    function saveChatHistory() {
+        var messages = [];
+        var msgEls = chatContainer.querySelectorAll('.message');
+        msgEls.forEach(function(el) {
+            var role = el.classList.contains('user') ? 'user' : 'assistant';
+            var bubble = el.querySelector('.bubble');
+            if (bubble) {
+                // 去掉 TTS bar 的文字
+                var clone = bubble.cloneNode(true);
+                var ttsBar = clone.querySelector('.tts-bar');
+                if (ttsBar) ttsBar.remove();
+                messages.push({ role: role, content: clone.textContent.trim() });
+            }
+        });
+        fetch('/api/chat/memory', {  // ★ 修改 URL，移除 user_id
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify({ messages: messages })
+        }).catch(function(){});
+    }
+
+    // 页面加载时恢复历史
+    fetch('/api/chat/memory', {  // ★ 修改 URL，移除 user_id
+        headers: getAuthHeaders()  // ★ 添加 Authorization Header
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success && result.messages && result.messages.length > 0) {
+                welcome.style.display = 'none';
+                result.messages.forEach(function(msg) {
+                    var bubble = appendMessage(msg.role, msg.content);
+                    if (msg.role === 'assistant') showTTSButton(bubble);
+                });
+            }
+        }).catch(function(){});
+
+    // ============================================================
+    // 输入框事件
+    // ============================================================
+    chatInput.addEventListener('input', autoResizeTextarea);
+
+    chatInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            var text = chatInput.value.trim();
+            if (text) sendMessage(text);
+        }
+    });
+
+    btnSend.addEventListener('click', function() {
+        var text = chatInput.value.trim();
+        if (text) sendMessage(text);
+    });
+
+    // ============================================================
+    // 保存身体数据
+    // ============================================================
+    profileForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var data = {
+            user_id: USER_ID,
+            height:  parseFloat($('height').value),
+            weight:  parseFloat($('weight').value),
+            age:     parseInt($('age').value),
+            gender:  $('gender').value
+        };
+        if (!data.height || !data.weight || !data.age) { showToast('请填写完整', 'error'); return; }
+        var originalText = saveBtn.textContent;
+        saveBtn.textContent = '保存中...'; saveBtn.disabled = true;
+        fetch('/api/save_profile', {  // ★ 移除 URL 中的 user_id
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify(data)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            saveBtn.textContent = originalText; saveBtn.disabled = false;
+            if (result.success) {
+                showToast('保存成功！', 'success');
+                showSavedData(data);
+                setTimeout(closeDrawer, 800);
+            } else { showToast('保存失败', 'error'); }
+        })
+        .catch(function() {
+            saveBtn.textContent = originalText; saveBtn.disabled = false;
+            showToast('无法连接后端', 'error');
+        });
+    });
+
+    function showSavedData(d) {
+        var bmi = (d.weight / Math.pow(d.height/100, 2)).toFixed(1);
+        $('savedHeight').textContent = d.height + ' cm';
+        $('savedWeight').textContent = d.weight + ' kg';
+        $('savedAge').textContent = d.age + ' 岁';
+        $('savedGender').textContent = d.gender;
+        $('savedBmi').textContent = bmi;
+        savedData.classList.add('show');
+    }
+
+    // 页面加载时恢复身体数据
+    fetch('/api/profile', {  // ★ 修改 URL，移除 user_id
+        headers: getAuthHeaders()  // ★ 添加 Authorization Header
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success && result.data) {
+                var d = result.data;
+                $('height').value = d.height;
+                $('weight').value = d.weight;
+                $('age').value = d.age;
+                $('gender').value = d.gender;
+                showSavedData(d);
+            }
+        }).catch(function(){});
+
+    // ============================================================
+    // 新建对话
+    // ============================================================
+    newChatBtn.addEventListener('click', function() {
+        fetch('/api/chat/memory', {  // ★ 修改 URL，移除 user_id
+            method: 'DELETE',
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function() {
+                chatContainer.innerHTML = '';
+                chatContainer.appendChild(welcome);
+                welcome.style.display = '';
+                showToast('已开启新对话', 'success');
+            }).catch(function() {
+                chatContainer.innerHTML = '';
+                chatContainer.appendChild(welcome);
+                welcome.style.display = '';
+            });
+        closeDrawer();
+    });
+
+    historyBtn.addEventListener('click', function() { showToast('历史对话开发中...', 'success'); });
+
+    // ============================================================
+    // 数据看板
+    // ============================================================
+    function loadDashboard() {
+        fetch('/api/dashboard/summary', {  // ★ 修改 URL，移除 user_id
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (!result.success) return;
+                var d = result.data;
+                if (d.bmi) {
+                    $('bmiValue').textContent = d.bmi;
+                    var statusEl = $('bmiStatus');
+                    statusEl.textContent = d.health_status;
+                    var cls = 'normal';
+                    if (d.health_status === '偏瘦') cls = 'under';
+                    else if (d.health_status === '偏胖') cls = 'over';
+                    else if (d.health_status === '肥胖') cls = 'obese';
+                    statusEl.className = 'bmi-status ' + cls;
+                    $('currentWeight').textContent = '当前体重：' + d.current_weight + ' kg';
+                }
+                // 渲染环形进度条
+                renderCalorieRing(d.today_calories, d.calorie_target);
+
+                // 渲染营养条形图
+                renderNutritionBars(
+                    d.today_protein || 0, d.protein_target || 120,
+                    d.today_carb || 0, d.carb_target || 300,
+                    d.today_fat || 0, d.fat_target || 65
+                );
+
+                // 渲染运动打卡日历
+                renderExerciseCalendar(d.exercise_week);
+
+                // 渲染图表
+                renderWeightChart(d.weight_logs);
+                renderDietList(d.diet_today);
+            }).catch(function() { showToast('加载数据失败', 'error'); });
+    }
+
+    // 渲染环形进度条
+    function renderCalorieRing(consumed, target) {
+        var ctx = $('calorieRingChart').getContext('2d');
+        if (calorieRingChart) calorieRingChart.destroy();
+        var pct = Math.min(100, (consumed / target * 100));
+        calorieRingChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['已摄入', '剩余'],
+                datasets: [{
+                    data: [pct, 100 - pct],
+                    backgroundColor: ['rgba(56,189,248,0.8)', 'rgba(15,23,42,0.6)'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: false,
+                cutout: '75%',
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            }
+        });
+        $('ringValue').textContent = consumed;
+        $('ringLabel').textContent = '/ ' + target + ' kcal';
+        $('calorieConsumed').textContent = consumed;
+        $('calorieTarget').textContent = target;
+    }
+
+    // 渲染营养条形图
+    function renderNutritionBars(protein, proteinTarget, carb, carbTarget, fat, fatTarget) {
+        $('proteinBar').style.width = Math.min(100, (protein / proteinTarget * 100)) + '%';
+        $('carbBar').style.width = Math.min(100, (carb / carbTarget * 100)) + '%';
+        $('fatBar').style.width = Math.min(100, (fat / fatTarget * 100)) + '%';
+        $('proteinText').textContent = Math.round(protein * 10) / 10 + ' / ' + proteinTarget + ' g';
+        $('carbText').textContent = Math.round(carb * 10) / 10 + ' / ' + carbTarget + ' g';
+        $('fatText').textContent = Math.round(fat * 10) / 10 + ' / ' + fatTarget + ' g';
+    }
+
+    // 渲染运动打卡日历
+    function renderExerciseCalendar(weekData) {
+        var calendarEl = $('exerciseCalendar');
+        var days = ['一', '二', '三', '四', '五', '六', '日'];
+        var today = new Date().getDay(); // 0=周日, 1=周一...
+        // 转换为周一=0
+        var todayIdx = today === 0 ? 6 : today - 1;
+        var html = '';
+        for (var i = 0; i < 7; i++) {
+            var checked = weekData[i] && weekData[i].duration > 0 ? 'checked' : '';
+            var isToday = i === todayIdx ? 'today' : '';
+            var duration = (weekData[i] && weekData[i].duration) ? weekData[i].duration : 0;
+            html += '<div class="calendar-day ' + checked + ' ' + isToday + '"><span class="day-name">周' + days[i] + '</span>' + duration + '分钟</div>';
+        }
+        calendarEl.innerHTML = html;
+    }
+
+    function renderWeightChart(weightLogs) {
+        var labels = [], values = [];
+        (weightLogs || []).forEach(function(item) { labels.push(item.date); values.push(item.weight); });
+        var ctx = $('weightChart').getContext('2d');
+        if (weightChart) weightChart.destroy();
+        weightChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: labels, datasets: [{ label: '体重（kg）', data: values, borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.4, point: { radius: 4, backgroundColor: '#10b981' } }] },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8', maxRotation: 45 } } } }
+        });
+    }
+
+    function renderDietList(dietData) {
+        var listEl = $('dietList');
+        if (!dietData || dietData.length === 0) { listEl.innerHTML = '<div class="empty-text">暂无记录，点击"添加"录入</div>'; return; }
+        var html = '';
+        dietData.forEach(function(item) {
+            html += '<div class="diet-item"><span>' + escapeHtml(item.food) + '</span><span class="calories">' + item.calories + ' kcal</span></div>';
+        });
+        listEl.innerHTML = html;
+    }
+
+    // ============================================================
+    // 目标设定弹窗
+    // ============================================================
+    goalSettingBtn.addEventListener('click', function() {
+        fetch('/api/dashboard/goal', {  // ★ 修改 URL，移除 user_id
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    $('calorieTargetInput').value = result.data.calorie_target || 2000;
+                    $('proteinTargetInput').value = result.data.protein_target || 120;
+                    $('carbTargetInput').value = result.data.carb_target || 300;
+                    $('fatTargetInput').value = result.data.fat_target || 65;
+                    $('exerciseTargetInput').value = result.data.exercise_target || 300;
+                }
+                goalModal.style.display = 'flex';
+            });
+    });
+    goalModalClose.addEventListener('click', function() { goalModal.style.display = 'none'; });
+    saveGoalBtn.addEventListener('click', function() {
+        var data = {
+            // ★ 移除 user_id，后端从 JWT Token 中获取
+            calorie_target: parseInt($('calorieTargetInput').value),
+            protein_target: parseInt($('proteinTargetInput').value),
+            carb_target: parseInt($('carbTargetInput').value),
+            fat_target: parseInt($('fatTargetInput').value),
+            exercise_target: parseInt($('exerciseTargetInput').value),
+        };
+        fetch('/api/dashboard/goal', {  // ★ 修改 URL，移除 user_id
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify(data)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) { showToast('目标设定已保存', 'success'); goalModal.style.display = 'none'; loadDashboard(); }
+            else { showToast('保存失败', 'error'); }
+        }).catch(function() { showToast('保存失败', 'error'); });
+    });
+
+    // ============================================================
+    // 添加饮食记录
+    // ============================================================
+    addDietBtn.addEventListener('click', function() {
+        var food = prompt('请输入食物名称：');
+        if (!food) return;
+        var cal = prompt('请输入热量（kcal）：');
+        if (!cal || isNaN(parseFloat(cal))) { showToast('请输入有效数字', 'error'); return; }
+        var protein = parseFloat(prompt('请输入蛋白质含量（g，可选）：') || '0');
+        var carb = parseFloat(prompt('请输入碳水化合物含量（g，可选）：') || '0');
+        var fat = parseFloat(prompt('请输入脂肪含量（g，可选）：') || '0');
+        fetch('/api/dashboard/diet', {  // ★ 修改 URL，移除 user_id
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify({
+                // ★ 移除 user_id，后端从 JWT Token 中获取
+                food_name: food,
+                calories: parseFloat(cal),
+                protein: protein,
+                carb: carb,
+                fat: fat
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) { showToast('饮食记录已保存', 'success'); loadDashboard(); }
+            else { showToast('保存失败', 'error'); }
+        }).catch(function() { showToast('保存失败', 'error'); });
+    });
+
+    // ============================================================
+    // 导出周报
+    // ============================================================
+    exportReportBtn.addEventListener('click', function() {
+        showToast('正在生成周报...', 'success');
+        var printContent = dashboardContainer.innerHTML;
+        var win = window.open('', '_blank');
+        win.document.write('<!DOCTYPE html><html><head><title>健身周报</title><meta charset="UTF-8"><style>body{background:#0f172a;color:#e2e8f0;padding:24px;font-family:sans-serif;}</style></head><body>' + printContent + '</body></html>');
+        win.document.close();
+        setTimeout(function() { win.print(); }, 500);
+    });
+
+    // ============================================================
+    // 打卡逻辑
+    // ============================================================
+    checkinBtn.addEventListener('click', function() {
+        fetch('/api/dashboard/checkin', {  // ★ 修改 URL，移除 user_id
+            method: 'POST',
+            headers: getAuthHeaders(),  // ★ 添加 Authorization Header
+            body: JSON.stringify({ checkin_type: 'daily' })  // ★ 移除 user_id
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) {
+                showToast('打卡成功！💪', 'success');
+                checkinBtn.classList.add('checked');
+                checkinBtn.textContent = '✅ 今日已打卡';
+                loadDashboard();
+                // 检查是否获得新成就
+                if (result.data && result.data.new_achievements && result.data.new_achievements.length > 0) {
+                    result.data.new_achievements.forEach(function(ach) {
+                        showToast('🎉 恭喜你获得【' + ach.name + '】成就！', 'success');
+                    });
+                }
+            } else {
+                showToast('打卡失败', 'error');
+            }
+        }).catch(function() { showToast('打卡失败', 'error'); });
+    });
+
+    // ============================================================
+    // 加载打卡数据和成就
+    // ============================================================
+    function loadCheckinData() {
+        fetch('/api/dashboard/streak', {  // ★ 修改 URL，移除 user_id
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    $('streakDays').textContent = result.data.current_streak;
+                    $('totalDays').textContent = result.data.total_days;
+                    // 如果今天已打卡，更新按钮状态
+                    if (result.data.last_checkin === new Date().toISOString().split('T')[0]) {
+                        checkinBtn.classList.add('checked');
+                        checkinBtn.textContent = '✅ 今日已打卡';
+                    }
+                }
+            }).catch(function() {});
+
+        fetch('/api/dashboard/achievements', {  // ★ 修改 URL，移除 user_id
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    renderAchievements(result.data);
+                }
+            }).catch(function() {});
+    }
+
+    function renderAchievements(achievements) {
+        var gridEl = $('achievementsGrid');
+        var allAchievements = [
+            {id: "first_checkin", name: "初次打卡", desc: "完成第一次打卡", icon: "🎯"},
+            {id: "streak_3", name: "三天打鱼", desc: "连续打卡 3 天", icon: "🔥"},
+            {id: "streak_7", name: "自律达人", desc: "连续打卡 7 天", icon: "💪"},
+            {id: "streak_14", name: "半月坚持", desc: "连续打卡 14 天", icon: "⭐"},
+            {id: "streak_30", name: "月度冠军", desc: "连续打卡 30 天", icon: "🏆"},
+            {id: "total_50", name: "健身爱好者", desc: "累计打卡 50 天", icon: "🥇"},
+            {id: "total_100", name: "百日坚持", desc: "累计打卡 100 天", icon: "👑"},
+        ];
+        var html = '';
+        allAchievements.forEach(function(ach) {
+            var unlocked = false;
+            for (var i = 0; i < achievements.length; i++) {
+                if (achievements[i].id === ach.id) { unlocked = true; break; }
+            }
+            html += '<div class="achievement-item ' + (unlocked ? 'unlocked' : '') + '">' +
+                     '<div class="achievement-icon">' + ach.icon + '</div>' +
+                     '<div class="achievement-name">' + ach.name + '</div>' +
+                     '<div class="achievement-desc">' + ach.desc + '</div>' +
+                     '</div>';
+        });
+        gridEl.innerHTML = html;
+    }
+
+    // ============================================================
+    // 生成打卡海报
+    // ============================================================
+    posterBtn.addEventListener('click', function() {
+        showToast('正在生成海报...', 'success');
+        // 使用 html2canvas 生成海报
+        if (!window.html2canvas) {
+            // 动态加载 html2canvas
+            var script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+            script.onload = function() { generatePoster(); };
+            script.onerror = function() { showToast('加载海报生成库失败', 'error'); };
+            document.head.appendChild(script);
+        } else {
+            generatePoster();
+        }
+    });
+
+    function generatePoster() {
+        // 创建海报容器
+        var posterContainer = document.createElement('div');
+        posterContainer.style.cssText = 'position:fixed;top:0;left:0;width:375px;background:linear-gradient(180deg,#0f172a,#1e293b,#0f172a);padding:32px 24px;font-family:-apple-system,"Microsoft YaHei",sans-serif;color:#e2e8f0;';
+        
+        // 获取打卡数据
+        fetch('/api/dashboard/summary', {  // ★ 修改 URL，移除 user_id
+            headers: getAuthHeaders()  // ★ 添加 Authorization Header
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (!result.success) { showToast('获取数据失败', 'error'); return; }
+                var d = result.data;
+                
+                // 构建海报内容
+                posterContainer.innerHTML = `
+                    <div style="text-align:center;margin-bottom:24px;">
+                        <div style="font-size:2.5rem;margin-bottom:8px;">💪</div>
+                        <div style="font-size:1.3rem;font-weight:700;color:#38bdf8;">AI 健身教练</div>
+                        <div style="font-size:0.8rem;color:#64748b;margin-top:4px;">打卡成就海报</div>
+                    </div>
+                    
+                    <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(56,189,248,0.2);border-radius:16px;padding:20px;margin-bottom:16px;text-align:center;">
+                        <div style="font-size:0.85rem;color:#64748b;margin-bottom:8px;">连续打卡</div>
+                        <div style="font-size:3rem;font-weight:700;color:#10b981;">${d.checkin_streak || 0}</div>
+                        <div style="font-size:1rem;color:#10b981;font-weight:600;">天</div>
+                    </div>
+                    
+                    <div style="background:rgba(30,41,59,0.6);border:1px solid rgba(148,163,184,0.1);border-radius:16px;padding:20px;margin-bottom:16px;">
+                        <div style="font-size:0.85rem;color:#64748b;margin-bottom:12px;font-weight:600;">今日数据</div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
+                            <span style="color:#94a3b8;">摄入热量</span>
+                            <span style="color:#38bdf8;font-weight:600;">${d.today_calories || 0} / ${d.calorie_target || 2000} kcal</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
+                            <span style="color:#94a3b8;">运动时长</span>
+                            <span style="color:#10b981;font-weight:600;">${d.today_exercise || 0} 分钟</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;">
+                            <span style="color:#94a3b8;">BMI</span>
+                            <span style="color:#e2e8f0;font-weight:600;">${d.bmi || '--'}</span>
+                        </div>
+                    </div>
+                    
+                    <div style="text-align:center;padding:16px;color:#64748b;font-size:0.75rem;">
+                        坚持健身，成就更好的自己！<br>
+                        —— AI 健身教练
+                    </div>
+                `;
+                
+                document.body.appendChild(posterContainer);
+                
+                // 使用 html2canvas 生成图片
+                html2canvas(posterContainer, {
+                    backgroundColor: '#0f172a',
+                    scale: 2,
+                }).then(function(canvas) {
+                    document.body.removeChild(posterContainer);
+                    var imgData = canvas.toDataURL('image/png');
+                    var link = document.createElement('a');
+                    link.download = 'fitness_poster_' + new Date().getTime() + '.png';
+                    link.href = imgData;
+                    link.click();
+                    showToast('海报已生成并下载！', 'success');
+                }).catch(function() {
+                    document.body.removeChild(posterContainer);
+                    showToast('生成海报失败', 'error');
+                });
+            }).catch(function() { showToast('获取数据失败', 'error'); });
+    }
+
+    // 在 loadDashboard 函数中调用 loadCheckinData
+    var originalLoadDashboard = loadDashboard;
+    loadDashboard = function() {
+        originalLoadDashboard();
+        loadCheckinData();
+    };
+
+    // ============================================================
+    // 页面加载时初始化鉴权状态
+    // ============================================================
+    document.addEventListener('DOMContentLoaded', function() {
+        checkAuth();  // 检查 Token 是否有效
+    });
+
+    // ★ 导出函数到 window，供外卖确认弹窗脚本使用
+    window._appendMessage = appendMessage;
+    window._appendThinking = appendThinking;
+    window._escapeHtml = escapeHtml;
+    window._showTTSButton = showTTSButton;
+    window._saveChatHistory = saveChatHistory;
+    window._scrollToBottom = scrollToBottom;
+    window._getAuthHeaders = getAuthHeaders;
+
+})();
+</script>
+
+<!-- ============================================================
+     ★ 通用确认交互组件（Human-in-the-loop）
+     由 SSE 流中的 confirmation_required 事件触发
+     ============================================================ -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-card">
+        <div class="confirm-icon" id="confirmIcon">🛑</div>
+        <div class="confirm-type-badge" id="confirmBadge">二次确认</div>
+        <div class="confirm-title" id="confirmTitle">需要你的确认</div>
+        <div class="confirm-desc" id="confirmDesc"></div>
+        <div class="confirm-actions" id="confirmActions">
+            <button class="confirm-btn primary" id="confirmBtnYes">
+                👍 确认
+            </button>
+            <button class="confirm-btn secondary" id="confirmBtnAlt">
+                🛵 直接跳转
+            </button>
+            <button class="confirm-btn danger" id="confirmBtnNo">
+                取消
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// ★ 通用确认交互组件 JS
+// ============================================================
+(function(){
+    var overlay = document.getElementById('confirmOverlay');
+    var iconEl = document.getElementById('confirmIcon');
+    var badgeEl = document.getElementById('confirmBadge');
+    var titleEl = document.getElementById('confirmTitle');
+    var descEl = document.getElementById('confirmDesc');
+    var yesBtn = document.getElementById('confirmBtnYes');
+    var altBtn = document.getElementById('confirmBtnAlt');
+    var noBtn = document.getElementById('confirmBtnNo');
+
+    // 当前确认状态
+    window.__pendingConfirm = null;
+
+    // 确认类型配置
+    var TYPE_CONFIG = {
+        food_order: {
+            icon: '🍽️', badge: '外卖推荐', title: '想找点吃的？',
+            yesLabel: '👍 帮我推荐健康餐厅', yesVisible: true,
+            altLabel: '🛵 直接去美团', altVisible: true, altAction: 'meituan',
+            noLabel: '不用了，我再想想',
+        },
+        default: {
+            icon: '🛑', badge: '二次确认', title: '需要你的确认',
+            yesLabel: '👍 确认', yesVisible: true,
+            altLabel: '', altVisible: false,
+            noLabel: '取消',
+        }
+    };
+
+    // 根据确认类型渲染 UI
+    function renderByType(data) {
+        var intentType = data.intent_type || data.type || 'default';
+        var cfg = TYPE_CONFIG[intentType] || TYPE_CONFIG['default'];
+
+        iconEl.textContent = cfg.icon;
+        badgeEl.textContent = cfg.badge;
+        badgeEl.style.display = cfg.badge ? '' : 'none';
+        titleEl.textContent = cfg.title;
+        yesBtn.textContent = cfg.yesLabel;
+        yesBtn.style.display = cfg.yesVisible ? '' : 'none';
+
+        if (cfg.altVisible && cfg.altLabel) {
+            altBtn.textContent = cfg.altLabel;
+            altBtn.style.display = '';
+            altBtn.className = (cfg.altAction === 'meituan') ? 'confirm-btn accent' : 'confirm-btn secondary';
+        } else {
+            altBtn.style.display = 'none';
+        }
+
+        noBtn.textContent = cfg.noLabel;
+    }
+
+    // 显示确认弹窗（从 SSE 流调用）
+    window.showConfirmDialog = function(data) {
+        renderByType(data);
+        descEl.innerHTML = (window._escapeHtml || escapeHtml)(data.message || '').replace(/\n/g, '<br>');
+        overlay.classList.add('visible');
+        window.__pendingConfirm = {
+            data: data,
+            intentType: data.intent_type || data.type || 'default',
+        };
+    };
+
+    // 隐藏确认弹窗
+    function hideConfirm() {
+        overlay.classList.remove('visible');
+        window.__pendingConfirm = null;
+    }
+    window.hideConfirmDialog = hideConfirm;
+
+    // 发送 resume 请求
+    function sendResume(resumeValue, directAction) {
+        var pending = window.__pendingConfirm;
+        hideConfirm();
+
+        if (directAction === 'meituan') {
+            window.open('https://www.meituan.com/', '_blank');
+            window._appendMessage('user', '（直接去美团看看）');
+            window._appendMessage('assistant', '好的！已为你打开美团，选好想吃的随时告诉我，我帮你看看营养搭配～');
+            window._saveChatHistory();
+            window._scrollToBottom();
+            return;
+        }
+
+        // 添加用户确认消息气泡
+        var confirmText = resumeValue === 'confirm' ? '（已确认）' : '（已取消）';
+        window._appendMessage('user', confirmText);
+
+        // 添加思考指示器
+        var thinkingEl = window._appendThinking();
+
+        var assistantBubble = null;
+        var fullText = '';
+
+        fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: window._getAuthHeaders(),
+            body: JSON.stringify({ message: '.', resume: resumeValue }),
+        })
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            var reader = r.body.getReader();
+            var decoder = new TextDecoder();
+
+            function read() {
+                return reader.read().then(function(result) {
+                    if (result.done) {
+                        if (thinkingEl) thinkingEl.remove();
+                        if (assistantBubble) {
+                            window._showTTSButton(assistantBubble);
+                            window._saveChatHistory();
+                        }
+                        return;
+                    }
+                    var chunk = decoder.decode(result.value, { stream: true });
+                    var lines = chunk.split('\n');
+                    lines.forEach(function(line) {
+                        if (!line.startsWith('data: ')) return;
+                        var dataStr = line.slice(6);
+                        if (dataStr === '[DONE]') return;
+                        try {
+                            var data = JSON.parse(dataStr);
+                            if (data.confirmation_required) {
+                                // 二次确认嵌套
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                if (assistantBubble) { assistantBubble.remove(); assistantBubble = null; }
+                                window.showConfirmDialog(data.confirmation_required);
+                                return;
+                            } else if (data.token) {
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                if (!assistantBubble) {
+                                    assistantBubble = window._appendMessage('assistant', '');
+                                }
+                                fullText += data.token;
+                                assistantBubble.innerHTML = window._escapeHtml(fullText) + '<span class="cursor">▌</span>';
+                                window._scrollToBottom();
+                            } else if (data.meituan_url) {
+                                if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+                                var btnHtml = '<br><br><a href="' + data.meituan_url + '" target="_blank" style="display:inline-block;padding:10px 24px;border-radius:20px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;text-decoration:none;font-size:0.9rem;font-weight:600;" onclick="event.preventDefault();window.open(this.href,\'_blank\')">' + (data.label || '🛵 去美团看看') + '</a>';
+                                if (assistantBubble) {
+                                    assistantBubble.innerHTML = window._escapeHtml(fullText) + btnHtml;
+                                } else {
+                                    window._appendMessage('assistant', btnHtml);
+                                }
+                                window._scrollToBottom();
+                                var w = window.open(data.meituan_url, '_blank');
+                                if (!w || w.closed) {
+                                    var toastEl = document.getElementById('toast');
+                                    if (toastEl) { toastEl.textContent = '🛵 点击橙色按钮即可跳转美团'; toastEl.className = 'toast toast-show'; setTimeout(function(){ toastEl.className = 'toast'; }, 4000); }
+                                }
+                            }
+                        } catch(e) {}
+                    });
+                    return read();
+                });
+            }
+            return read();
+        })
+        .catch(function(err) {
+            if (thinkingEl) thinkingEl.remove();
+            if (err.name !== 'AbortError') {
+                window._appendMessage('assistant', '⚠️ 处理请求失败，请重试。');
+            }
+        });
+    }
+
+    // 按钮事件
+    yesBtn.addEventListener('click', function() { sendResume('confirm'); });
+    altBtn.addEventListener('click', function() {
+        var pending = window.__pendingConfirm;
+        var altAction = (pending && TYPE_CONFIG[pending.intentType]) ? TYPE_CONFIG[pending.intentType].altAction : null;
+        sendResume('cancel', altAction);
+    });
+    noBtn.addEventListener('click', function() { sendResume('cancel'); });
+
+})();
+</script>
+</body>
+</html>

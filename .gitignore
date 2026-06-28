@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 环境变量（含密钥）
+.env
+*.env
+
+# 数据库文件（含用户数据，不提交）
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志
+*.log
+replay_*.log
+
+# 学习资料（非项目必要文件）
+AGENT_COURSE.md
+PROJECT_ROADMAP.md
+AGENT_LEARNING_GUIDE.html
+
+# 废弃文件
+app.py
+
+# 系统文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,50 @@
+# Python 相关
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheelhouse/
+share/python-wheels/
+*.manifest
+*.spec
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# Git 相关
+.git/
+.gitignore
+
+# 日志文件
+*.log
+
+# 数据库文件（如果需要挂载，可以排除）
+# *.db
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 其他
+.DS_Store
+*.orig

@@ -1,0 +1,12 @@
+# AI 健身教练后端依赖
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+langgraph>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.3.0
+python-dotenv>=1.0.0
+dashscope>=1.20.0
+# 腾讯云 SDK（ASR 语音识别 + TTS 语音合成）
+tencentcloud-sdk-python>=3.0.0
+# 文件上传支持
+python-multipart>=0.0.9
