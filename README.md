@@ -97,7 +97,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 访问 `http://localhost:8000` 即可使用。
 
-## Agent 架构亮点（面试要点）
+## Agent 架构亮点
 
 - **为什么选 LangGraph**：状态可暂停/恢复（Checkpointer）、条件路由（`add_conditional_edges`）、Human-in-the-loop（`interrupt()`）是其他框架（CrewAI/AutoGen）难以优雅实现的
 - **ReAct vs Tool Calling**：本项目同时实现了两种模式，bind_tools 用于生产，ReAct 用于调试和可观测性
